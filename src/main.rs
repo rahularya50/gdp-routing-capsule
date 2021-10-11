@@ -38,7 +38,7 @@ fn reply_echo(packet: &Mbuf) -> Result<EchoReply> {
     let mut reply = reply.push::<Ipv4>()?;
     reply.set_src(ipv4.dst());
     reply.set_dst(ipv4.src());
-    reply.set_ttl(255);
+    reply.set_ttl(150);
 
     let request = ipv4.peek::<EchoRequest>()?;
     let mut reply = reply.push::<EchoReply>()?;
