@@ -36,7 +36,7 @@ fn reply_echo(packet: &Mbuf) -> Result<Udp<Ipv4>> {
 
     let ipv4 = ethernet.peek::<Ipv4>()?;
     let mut reply = reply.push::<Ipv4>()?;
-    reply.set_src(std::net::Ipv4Addr::new(10, 100, 1, 254));
+    reply.set_src(ipv4.dst());
     reply.set_dst(ipv4.src());
     reply.set_ttl(150);
 
