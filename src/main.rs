@@ -26,7 +26,11 @@ use capsule::{Mbuf, PortQueue, Runtime};
 use tracing::{debug, Level};
 use tracing_subscriber::fmt;
 
-fn reply_echo(packet: &Mbuf) -> Result<Udp<Ipv4>> {
+use crate::gdp::Gdp;
+
+mod gdp;
+
+fn reply_echo(packet: &Mbuf) -> Result<Gdp<Ipv4>> {
     let reply = Mbuf::new()?;
 
     let ethernet = packet.peek::<Ethernet>()?;
@@ -40,12 +44,17 @@ fn reply_echo(packet: &Mbuf) -> Result<Udp<Ipv4>> {
     reply.set_dst(ipv4.src());
     reply.set_ttl(150);
 
-    let request = ipv4.peek::<Udp<Ipv4>>()?;
+    let udp = ipv4.peek::<Udp<Ipv4>>()?;
     let mut reply = reply.push::<Udp<Ipv4>>()?;
-    reply.set_src_port(request.dst_port());
-    reply.set_dst_port(request.src_port());
+    reply.set_src_port(udp.dst_port());
+    reply.set_dst_port(udp.src_port());
 
-    let payload = request.mbuf().read_data_slice::<u8>(request.payload_offset(), request.payload_len())?;
+    let gdp = udp.peek::<Gdp<Ipv4>>()?;
+    let mut reply = reply.push::<Gdp<Ipv4>>()?;
+
+    reply.set_field(gdp.field());
+
+    let payload = gdp.mbuf().read_data_slice::<u8>(gdp.payload_offset(), gdp.payload_len())?;
     let payload = unsafe { payload.as_ref() };
 
     let message = "This is the server: ".as_bytes();
