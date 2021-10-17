@@ -19,14 +19,14 @@
 use anyhow::Result;
 use capsule::batch::{Batch, Pipeline, Poll};
 use capsule::config::load_config;
-use capsule::packets::icmp::v4::{EchoReply, EchoRequest};
 use capsule::packets::ip::v4::Ipv4;
+use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::{Mbuf, PortQueue, Runtime};
 use tracing::{debug, Level};
 use tracing_subscriber::fmt;
 
-fn reply_echo(packet: &Mbuf) -> Result<EchoReply> {
+fn reply_echo(packet: &Mbuf) -> Result<Udp<Ipv4>> {
     let reply = Mbuf::new()?;
 
     let ethernet = packet.peek::<Ethernet>()?;
@@ -40,15 +40,25 @@ fn reply_echo(packet: &Mbuf) -> Result<EchoReply> {
     reply.set_dst(ipv4.src());
     reply.set_ttl(150);
 
-    let request = ipv4.peek::<EchoRequest>()?;
-    let mut reply = reply.push::<EchoReply>()?;
-    reply.set_identifier(request.identifier());
-    reply.set_seq_no(request.seq_no());
-    reply.set_data(request.data())?;
-    reply.reconcile_all();
+    let request = ipv4.peek::<Udp<Ipv4>>()?;
+    let mut reply = reply.push::<Udp<Ipv4>>()?;
+    reply.set_src_ip(std::net::IpAddr::V4(ipv4.dst()))?;
+    reply.set_dst_ip(std::net::IpAddr::V4(ipv4.src()))?;
+    reply.set_src_port(request.dst_port());
+    reply.set_dst_port(request.src_port());
 
-    debug!(?request);
-    debug!(?reply);
+    let payload = request.mbuf().read_data_slice::<u8>(request.payload_offset(), request.payload_len())?;
+    println!("here!");
+
+    let envelope = request.envelope();
+    let reply_env = reply.envelope();
+
+    debug!(?envelope);
+    debug!(?reply_env);
+
+    println!("{:?}", unsafe { payload.as_ref() });
+
+    // reply
 
     Ok(reply)
 }
