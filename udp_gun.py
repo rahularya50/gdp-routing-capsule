@@ -11,7 +11,7 @@ s = socket.socket(
     socket.SOCK_DGRAM
 )
 s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-s.bind(("", SOURCE_PORT))
+s.bind(("10.100.1.1", SOURCE_PORT))
 s.sendto(MESSAGE, (TARGET_IP, TARGET_PORT))
 received = s.recvfrom(1024)
 print(received)

@@ -36,27 +36,28 @@ fn reply_echo(packet: &Mbuf) -> Result<Udp<Ipv4>> {
 
     let ipv4 = ethernet.peek::<Ipv4>()?;
     let mut reply = reply.push::<Ipv4>()?;
-    reply.set_src(ipv4.dst());
+    reply.set_src(std::net::Ipv4Addr::new(10, 100, 1, 254));
     reply.set_dst(ipv4.src());
     reply.set_ttl(150);
 
     let request = ipv4.peek::<Udp<Ipv4>>()?;
     let mut reply = reply.push::<Udp<Ipv4>>()?;
-    reply.set_src_ip(std::net::IpAddr::V4(ipv4.dst()))?;
-    reply.set_dst_ip(std::net::IpAddr::V4(ipv4.src()))?;
     reply.set_src_port(request.dst_port());
     reply.set_dst_port(request.src_port());
 
     let payload = request.mbuf().read_data_slice::<u8>(request.payload_offset(), request.payload_len())?;
-    println!("here!");
+    let payload = unsafe { payload.as_ref() };
 
-    let envelope = request.envelope();
-    let reply_env = reply.envelope();
+    let message = "This is the server: ".as_bytes();
 
-    debug!(?envelope);
-    debug!(?reply_env);
+    let offset = reply.payload_offset();
+    reply.mbuf_mut().extend(offset, message.len() + payload.len())?;
+    reply.mbuf_mut().write_data_slice(offset, &message)?;
+    reply.mbuf_mut().write_data_slice(offset + message.len(), payload)?;
 
-    println!("{:?}", unsafe { payload.as_ref() });
+    reply.reconcile_all();
+
+    println!("{:?}", payload);
 
     // reply
 
