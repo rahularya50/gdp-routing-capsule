@@ -23,14 +23,17 @@ use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::{Mbuf, PortQueue, Runtime};
-use tracing::{debug, Level};
+use tracing::Level;
 use tracing_subscriber::fmt;
 
 use crate::gdp::Gdp;
+use crate::gdp::GdpAction;
+use crate::kvs::Store;
 
 mod gdp;
+mod kvs;
 
-fn reply_echo(packet: &Mbuf) -> Result<Gdp<Ipv4>> {
+fn parse_ipv4_gdp(packet: &Mbuf, store: Store) -> Result<Gdp<Ipv4>> {
     let reply = Mbuf::new()?;
 
     let ethernet = packet.peek::<Ethernet>()?;
@@ -52,29 +55,41 @@ fn reply_echo(packet: &Mbuf) -> Result<Gdp<Ipv4>> {
     let gdp = udp.peek::<Gdp<Ipv4>>()?;
     let mut reply = reply.push::<Gdp<Ipv4>>()?;
 
-    reply.set_field(gdp.field());
+    match gdp.action()? {
+        GdpAction::NOOP => (),
+        GdpAction::GET => {
+            store
+                .get(&gdp.key())
+                .and_then(|value| Some(reply.set_value(value)));
+        }
+        GdpAction::PUT => store.put(gdp.key(), gdp.value()),
+    }
 
-    let payload = gdp.mbuf().read_data_slice::<u8>(gdp.payload_offset(), gdp.payload_len())?;
+    let payload = gdp
+        .mbuf()
+        .read_data_slice::<u8>(gdp.payload_offset(), gdp.payload_len())?;
     let payload = unsafe { payload.as_ref() };
 
     let message = "This is the server: ".as_bytes();
 
     let offset = reply.payload_offset();
-    reply.mbuf_mut().extend(offset, message.len() + payload.len())?;
+    reply
+        .mbuf_mut()
+        .extend(offset, message.len() + payload.len())?;
     reply.mbuf_mut().write_data_slice(offset, &message)?;
-    reply.mbuf_mut().write_data_slice(offset + message.len(), payload)?;
+    reply
+        .mbuf_mut()
+        .write_data_slice(offset + message.len(), payload)?;
 
     reply.reconcile_all();
-
-    println!("{:?}", payload);
-
-    // reply
 
     Ok(reply)
 }
 
-fn install(q: PortQueue) -> impl Pipeline {
-    Poll::new(q.clone()).replace(reply_echo).send(q)
+fn install(q: PortQueue, store: Store) -> impl Pipeline {
+    Poll::new(q.clone())
+        .replace(move |packet| parse_ipv4_gdp(packet, store.clone()))
+        .send(q)
 }
 
 fn main() -> Result<()> {
@@ -84,9 +99,10 @@ fn main() -> Result<()> {
     tracing::subscriber::set_global_default(subscriber)?;
 
     let config = load_config()?;
-    debug!(?config);
+
+    let store = Store::new();
 
     Runtime::build(config)?
-        .add_pipeline_to_port("eth1", install)?
+        .add_pipeline_to_port("eth1", move |q| install(q, store.clone()))?
         .execute()
 }

@@ -1,13 +1,41 @@
-use capsule::packets::ip::{IpPacket};
+use anyhow::{anyhow, Result};
+use capsule::packets::ip::IpPacket;
 use capsule::packets::types::u16be;
+use capsule::packets::Udp;
 use capsule::packets::{Internal, Packet};
 use capsule::{ensure, SizeOf};
-use anyhow::{anyhow, Result};
+use std::convert::TryFrom;
+use std::convert::TryInto;
 use std::fmt;
 use std::ptr::NonNull;
-use capsule::packets::Udp;
 
-const MAGIC_NUMBERS: [u8; 2] = [0x26, 0x2a];
+const MAGIC_NUMBERS: u16 = u16::from_be_bytes([0x26, 0x2a]);
+
+#[derive(Debug)]
+pub enum GdpAction {
+    NOOP = 0,
+    PUT = 1,
+    GET = 2,
+}
+
+impl Default for GdpAction {
+    fn default() -> Self {
+        GdpAction::NOOP
+    }
+}
+
+impl TryFrom<u8> for GdpAction {
+    type Error = anyhow::Error;
+
+    fn try_from(v: u8) -> Result<Self> {
+        match v {
+            x if x == GdpAction::NOOP as u8 => Ok(GdpAction::NOOP),
+            x if x == GdpAction::GET as u8 => Ok(GdpAction::GET),
+            x if x == GdpAction::PUT as u8 => Ok(GdpAction::PUT),
+            _ => Err(anyhow::Error::msg("Unknown action byte")),
+        }
+    }
+}
 
 pub struct Gdp<T: IpPacket> {
     envelope: Udp<T>,
@@ -27,20 +55,40 @@ impl<T: IpPacket> Gdp<T> {
     }
 
     #[inline]
-    pub fn field(&self) -> u16 {
-        self.header().field.into()
+    pub fn action(&self) -> Result<GdpAction> {
+        self.header().action.try_into()
     }
 
     #[inline]
-    pub fn set_field(&mut self, src_port: u16) {
-        self.header_mut().field = src_port.into();
+    pub fn set_action(&mut self, action: GdpAction) {
+        self.header_mut().action = action as u8;
+    }
+
+    #[inline]
+    pub fn key(&self) -> [u8; 32] {
+        self.header().key
+    }
+
+    #[inline]
+    pub fn set_key(&mut self, key: [u8; 32]) {
+        self.header_mut().key = key;
+    }
+
+    #[inline]
+    pub fn value(&self) -> [u8; 32] {
+        self.header().value
+    }
+
+    #[inline]
+    pub fn set_value(&mut self, value: [u8; 32]) {
+        self.header_mut().value = value;
     }
 }
 
 impl<T: IpPacket> fmt::Debug for Gdp<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("gdp")
-            .field("$field", &self.field())
+            .field("$action", &self.action())
             .finish()
     }
 }
@@ -90,7 +138,7 @@ impl<T: IpPacket> Packet for Gdp<T> {
         };
 
         ensure!(
-            out.header().field == u16be::from(u16::from_be_bytes(MAGIC_NUMBERS)),
+            out.header().field == MAGIC_NUMBERS.into(),
             anyhow!("not a GDP packet.")
         );
 
@@ -119,7 +167,7 @@ impl<T: IpPacket> Packet for Gdp<T> {
 
     #[inline]
     fn reconcile(&mut self) {
-        // todo
+        self.header_mut().field = MAGIC_NUMBERS.into();
     }
 }
 
@@ -127,5 +175,7 @@ impl<T: IpPacket> Packet for Gdp<T> {
 #[repr(C)]
 struct GdpHeader {
     field: u16be,
+    action: u8,
+    key: [u8; 32],
+    value: [u8; 32],
 }
-
