@@ -1,0 +1,14 @@
+app_name = "ping4d"
+master_core = 0
+duration = 50
+
+[mempool]
+    capacity = 65535
+    cache_size = 256
+
+[[ports]]
+    name = "eth0"
+    device = "0000:00:08.0"
+    cores = [0]
+    rxd = 512
+    txd = 512

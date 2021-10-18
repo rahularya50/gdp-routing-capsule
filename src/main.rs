@@ -23,7 +23,8 @@ use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::{Mbuf, PortQueue, Runtime};
-use tracing::Level;
+use std::net::Ipv4Addr;
+use tracing::{debug, Level};
 use tracing_subscriber::fmt;
 
 use crate::gdp::Gdp;
@@ -34,27 +35,53 @@ mod gdp;
 mod kvs;
 
 fn parse_ipv4_gdp(packet: &Mbuf, store: Store) -> Result<Gdp<Ipv4>> {
+    
+    // parse entire packet
+    let ethernet = packet.peek::<Ethernet>()?;
+    let ipv4 = ethernet.peek::<Ipv4>()?;
+    let udp = ipv4.peek::<Udp<Ipv4>>()?;
+    let gdp = udp.peek::<Gdp<Ipv4>>()?;
+
     let reply = Mbuf::new()?;
 
-    let ethernet = packet.peek::<Ethernet>()?;
     let mut reply = reply.push::<Ethernet>()?;
     reply.set_src(ethernet.dst());
     reply.set_dst(ethernet.src());
 
-    let ipv4 = ethernet.peek::<Ipv4>()?;
     let mut reply = reply.push::<Ipv4>()?;
+
     reply.set_src(ipv4.dst());
     reply.set_dst(ipv4.src());
     reply.set_ttl(150);
 
-    let udp = ipv4.peek::<Udp<Ipv4>>()?;
+    match gdp.action() ? {
+        GdpAction::F_PING => {
+            // F_PING must forge a PING from this receiver
+            reply.set_src(ipv4.dst());
+
+            // expect dst IP in the first 4 bytes of payload
+            let forge_dst_ip = gdp.mbuf().read_data_slice::<u32>(gdp.payload_offset(), 1)?;
+            let forge_dst_ip = unsafe { forge_dst_ip.as_ptr() };
+            reply.set_dst(Ipv4Addr::from(forge_dst_ip));
+        },
+    }
+
+    
     let mut reply = reply.push::<Udp<Ipv4>>()?;
     reply.set_src_port(udp.dst_port());
     reply.set_dst_port(udp.src_port());
 
-    let gdp = udp.peek::<Gdp<Ipv4>>()?;
+    
+
     let mut reply = reply.push::<Gdp<Ipv4>>()?;
 
+    // set up reply packet correctly per action
+    match gdp.action()? {
+        GdpAction::PING  => reply.set_action(GdpAction::PONG),
+        GdpAction::F_PING => reply.set_action(GdpAction::PING),
+    }
+
+    // execute action dependent things
     match gdp.action()? {
         GdpAction::NOOP => (),
         GdpAction::GET => {
@@ -63,13 +90,14 @@ fn parse_ipv4_gdp(packet: &Mbuf, store: Store) -> Result<Gdp<Ipv4>> {
                 .and_then(|value| Some(reply.set_value(value)));
         }
         GdpAction::PUT => store.put(gdp.key(), gdp.value()),
+        GdpAction::PING => println!("Received PING from {:?}", ipv4.src()),
+        GdpAction::PONG => println!("Received PONG from {:?}", ipv4.src()),
     }
 
     let payload = gdp
         .mbuf()
         .read_data_slice::<u8>(gdp.payload_offset(), gdp.payload_len())?;
     let payload = unsafe { payload.as_ref() };
-
     let message = "This is the server: ".as_bytes();
 
     let offset = reply.payload_offset();
