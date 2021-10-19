@@ -13,12 +13,12 @@ const MAGIC_NUMBERS: u16 = u16::from_be_bytes([0x26, 0x2a]);
 
 #[derive(Debug)]
 pub enum GdpAction {
-    NOOP        = 0,
-    PUT         = 1,
-    GET         = 2,
-    PING        = 3,
-    PONG        = 4,
-    FPING      = 5,
+    NOOP = 0,
+    PUT = 1,
+    GET = 2,
+    PING = 3,
+    PONG = 4,
+    FPING = 5,
 }
 
 impl Default for GdpAction {
