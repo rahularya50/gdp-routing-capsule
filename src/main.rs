@@ -16,19 +16,21 @@
 * SPDX-License-Identifier: Apache-2.0
 */
 
+use crate::gdp::Gdp;
+use crate::gdp::GdpAction;
+use crate::kvs::Store;
 use anyhow::Result;
-use capsule::batch::{Batch, Pipeline, Poll};
+use capsule::batch::{self, Batch, Pipeline, Poll};
 use capsule::config::load_config;
+use capsule::debug;
+use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::{Mbuf, PortQueue, Runtime};
+use std::net::Ipv4Addr;
 use tracing::Level;
 use tracing_subscriber::fmt;
-
-use crate::gdp::Gdp;
-use crate::gdp::GdpAction;
-use crate::kvs::Store;
 
 mod gdp;
 mod kvs;
@@ -83,10 +85,78 @@ fn parse_ipv4_gdp(packet: &Mbuf, store: Store) -> Result<Gdp<Ipv4>> {
 
     reply.reconcile_all();
 
+    debug!(?reply);
+    let envelope = reply.envelope();
+    debug!(?envelope);
+    let envelope = envelope.envelope();
+    debug!(?envelope);
+    let envelope = envelope.envelope();
+    debug!(?envelope);
+
     Ok(reply)
 }
 
+fn prep_packet(
+    reply: Mbuf,
+    src_mac: MacAddr,
+    src_ip: Ipv4Addr,
+    dst_mac: MacAddr,
+    dst_ip: Ipv4Addr,
+    _store: Store,
+) -> Result<Gdp<Ipv4>> {
+    let mut reply = reply.push::<Ethernet>()?;
+    reply.set_src(src_mac);
+    reply.set_dst(dst_mac);
+
+    let mut reply = reply.push::<Ipv4>()?;
+    reply.set_src(src_ip);
+    reply.set_dst(dst_ip);
+
+    let mut reply = reply.push::<Udp<Ipv4>>()?;
+    reply.set_src_port(27182);
+    reply.set_dst_port(27182);
+
+    let mut reply = reply.push::<Gdp<Ipv4>>()?;
+
+    let message = "Initial server outgoing!".as_bytes();
+
+    let offset = reply.payload_offset();
+    reply.mbuf_mut().extend(offset, message.len())?;
+    reply.mbuf_mut().write_data_slice(offset, &message)?;
+
+    reply.reconcile_all();
+
+    debug!(?reply);
+    let envelope = reply.envelope();
+    debug!(?envelope);
+    let envelope = envelope.envelope();
+    debug!(?envelope);
+    let envelope = envelope.envelope();
+    debug!(?envelope);
+
+    Ok(reply)
+}
+
+fn install_outgoing(q: &PortQueue, store: Store) -> () {
+    let src_mac = q.mac_addr();
+    batch::poll_fn(|| Mbuf::alloc_bulk(1).unwrap())
+        .map(move |packet| {
+            prep_packet(
+                packet,
+                src_mac,
+                Ipv4Addr::new(10, 100, 1, 255),
+                MacAddr::new(0x0a, 0x00, 0x27, 0x00, 0x00, 0x02),
+                Ipv4Addr::new(10, 100, 1, 1),
+                store.clone(),
+            )
+        })
+        .send(q.clone())
+        .run_once();
+}
+
 fn install(q: PortQueue, store: Store) -> impl Pipeline {
+    install_outgoing(&q, store.clone());
+
     Poll::new(q.clone())
         .replace(move |packet| parse_ipv4_gdp(packet, store.clone()))
         .send(q)
@@ -103,6 +173,7 @@ fn main() -> Result<()> {
     let store = Store::new();
 
     Runtime::build(config)?
+        // .add_pipeline_to_port("eth1", move |q| install_outgoing(q, store.clone()))?
         .add_pipeline_to_port("eth1", move |q| install(q, store.clone()))?
         .execute()
 }
