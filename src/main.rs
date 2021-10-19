@@ -22,9 +22,9 @@ use capsule::config::load_config;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
-use capsule::{Mbuf, PortQueue, Runtime};
-use std::net::Ipv4Addr;
-use tracing::{debug, Level};
+use capsule::{Mbuf, PortQueue, Runtime, SizeOf};
+use std::convert::TryInto;
+use tracing::{Level};
 use tracing_subscriber::fmt;
 
 use crate::gdp::Gdp;
@@ -35,7 +35,6 @@ mod gdp;
 mod kvs;
 
 fn parse_ipv4_gdp(packet: &Mbuf, store: Store) -> Result<Gdp<Ipv4>> {
-    
     // parse entire packet
     let ethernet = packet.peek::<Ethernet>()?;
     let ipv4 = ethernet.peek::<Ipv4>()?;
@@ -51,39 +50,36 @@ fn parse_ipv4_gdp(packet: &Mbuf, store: Store) -> Result<Gdp<Ipv4>> {
     let mut reply = reply.push::<Ipv4>()?;
 
     reply.set_src(ipv4.dst());
-    reply.set_dst(ipv4.src());
     reply.set_ttl(150);
 
-    match gdp.action() ? {
+    match gdp.action()? {
         GdpAction::F_PING => {
             // F_PING must forge a PING from this receiver
-            reply.set_src(ipv4.dst());
-
             // expect dst IP in the first 4 bytes of payload
-            let forge_dst_ip = gdp.mbuf().read_data_slice::<u32>(gdp.payload_offset(), 1)?;
-            let forge_dst_ip = unsafe { forge_dst_ip.as_ptr() };
-            reply.set_dst(Ipv4Addr::from(forge_dst_ip));
-        },
+            let forge_dst_ip = gdp.mbuf().read_data_slice::<u8>(gdp.payload_offset(), 4)?;
+            let forge_dst_ip = unsafe { forge_dst_ip.as_ref() };
+            reply.set_dst(TryInto::<[u8; 4]>::try_into(forge_dst_ip)?.into());
+        }
+        _ => {
+            reply.set_dst(ipv4.src());
+        }
     }
 
-    
     let mut reply = reply.push::<Udp<Ipv4>>()?;
     reply.set_src_port(udp.dst_port());
     reply.set_dst_port(udp.src_port());
-
-    
 
     let mut reply = reply.push::<Gdp<Ipv4>>()?;
 
     // set up reply packet correctly per action
     match gdp.action()? {
-        GdpAction::PING  => reply.set_action(GdpAction::PONG),
+        GdpAction::PING => reply.set_action(GdpAction::PONG),
         GdpAction::F_PING => reply.set_action(GdpAction::PING),
+        _ => (),
     }
 
     // execute action dependent things
     match gdp.action()? {
-        GdpAction::NOOP => (),
         GdpAction::GET => {
             store
                 .get(&gdp.key())
@@ -92,6 +88,7 @@ fn parse_ipv4_gdp(packet: &Mbuf, store: Store) -> Result<Gdp<Ipv4>> {
         GdpAction::PUT => store.put(gdp.key(), gdp.value()),
         GdpAction::PING => println!("Received PING from {:?}", ipv4.src()),
         GdpAction::PONG => println!("Received PONG from {:?}", ipv4.src()),
+        _ => (),
     }
 
     let payload = gdp
