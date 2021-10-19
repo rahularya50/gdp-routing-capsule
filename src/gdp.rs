@@ -18,7 +18,7 @@ pub enum GdpAction {
     GET         = 2,
     PING        = 3,
     PONG        = 4,
-    F_PING      = 5,
+    FPING      = 5,
 }
 
 impl Default for GdpAction {
@@ -37,7 +37,7 @@ impl TryFrom<u8> for GdpAction {
             x if x == GdpAction::PUT as u8 => Ok(GdpAction::PUT),
             x if x == GdpAction::PING as u8 => Ok(GdpAction::PING),
             x if x == GdpAction::PONG as u8 => Ok(GdpAction::PONG),
-            x if x == GdpAction::F_PING as u8 => Ok(GdpAction::F_PING),
+            x if x == GdpAction::FPING as u8 => Ok(GdpAction::FPING),
             _ => Err(anyhow::Error::msg("Unknown action byte")),
         }
     }

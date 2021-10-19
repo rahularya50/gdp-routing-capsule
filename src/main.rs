@@ -49,12 +49,12 @@ fn parse_ipv4_gdp(packet: &Mbuf, store: Store) -> Result<Gdp<Ipv4>> {
     let payload = unsafe { payload.as_ref() };
 
     // Construct reply
-    let mut reply = Mbuf::new()?;
+    let reply = Mbuf::new()?;
     
     // Ethernet-frame level
     let mut reply = reply.push::<Ethernet>()?;
     match gdp.action()? {
-        GdpAction::F_PING => {
+        GdpAction::FPING => {
             // Forge PING based on MAC address in first 
             // First 6 octets of payload
             let dst_mac = MacAddr::new(
@@ -65,7 +65,7 @@ fn parse_ipv4_gdp(packet: &Mbuf, store: Store) -> Result<Gdp<Ipv4>> {
                 payload[4],
                 payload[5]
             );
-            debug!("Received F_PING");
+            debug!("Received FPING");
             debug!("Forging dst MAC to to: {:02X?}", dst_mac.octets());
             reply.set_src(ethernet.dst());
             reply.set_dst(dst_mac);
@@ -81,7 +81,7 @@ fn parse_ipv4_gdp(packet: &Mbuf, store: Store) -> Result<Gdp<Ipv4>> {
     
     reply.set_ttl(150);
     match gdp.action()? {
-        GdpAction::F_PING => {
+        GdpAction::FPING => {
             // Forge PING dst IP address based on indices [6,10)
             let dst_ip = Ipv4Addr::new(
                 payload[6],
@@ -109,15 +109,15 @@ fn parse_ipv4_gdp(packet: &Mbuf, store: Store) -> Result<Gdp<Ipv4>> {
 
     // Reply based on action
     match gdp.action()? {
-        GdpAction::F_PING => {
-            println!("Received forge ping!");
+        GdpAction::FPING => {
+            // FPING will cause the outgoing reply to be forwarded
             reply.set_action(GdpAction::PING);
         }
         GdpAction::PING => {
-            println!("Received ping!");
+            println!("Received PING!");
             reply.set_action(GdpAction::PONG);
         },
-        GdpAction::PONG => println!("Received pong!"),
+        GdpAction::PONG => println!("Received PONG!"),
         _ => (),
     }
 
@@ -162,9 +162,11 @@ fn main() -> Result<()> {
 
     let config = load_config()?;
 
-    let store = Store::new();
+    let store1 = Store::new();
+    let store2 = Store::new();
 
     Runtime::build(config)?
-        .add_pipeline_to_port("eth1", move |q| install(q, store.clone()))?
+        .add_pipeline_to_port("eth1", move |q| install(q, store1.clone()))?
+        .add_pipeline_to_port("eth2", move |q| install(q, store2.clone()))?
         .execute()
 }

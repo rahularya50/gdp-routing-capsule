@@ -12,3 +12,11 @@ duration = 50
     cores = [0]
     rxd = 512
     txd = 512
+
+[[ports]]
+    name = "eth2"
+    device = "0000:00:09.0"
+    cores = [0]
+    rxd = 512
+    txd = 512
+
