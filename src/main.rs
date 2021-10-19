@@ -36,7 +36,6 @@ mod gdp;
 mod kvs;
 
 fn parse_ipv4_gdp(packet: &Mbuf, store: Store) -> Result<Gdp<Ipv4>> {
-
     // Parse packet
     let ethernet = packet.peek::<Ethernet>()?;
     let ipv4 = ethernet.peek::<Ipv4>()?;
@@ -50,20 +49,14 @@ fn parse_ipv4_gdp(packet: &Mbuf, store: Store) -> Result<Gdp<Ipv4>> {
 
     // Construct reply
     let reply = Mbuf::new()?;
-    
     // Ethernet-frame level
     let mut reply = reply.push::<Ethernet>()?;
     match gdp.action()? {
         GdpAction::FPING => {
-            // Forge PING based on MAC address in first 
+            // Forge PING based on MAC address in first
             // First 6 octets of payload
             let dst_mac = MacAddr::new(
-                payload[0],
-                payload[1],
-                payload[2],
-                payload[3],
-                payload[4],
-                payload[5]
+                payload[0], payload[1], payload[2], payload[3], payload[4], payload[5],
             );
             debug!("Received FPING");
             debug!("Forging dst MAC to to: {:02X?}", dst_mac.octets());
@@ -73,22 +66,15 @@ fn parse_ipv4_gdp(packet: &Mbuf, store: Store) -> Result<Gdp<Ipv4>> {
         _ => {
             reply.set_src(ethernet.dst());
             reply.set_dst(ethernet.src());
-        },
+        }
     }
-    
     // IP Layer
     let mut reply = reply.push::<Ipv4>()?;
-    
     reply.set_ttl(150);
     match gdp.action()? {
         GdpAction::FPING => {
             // Forge PING dst IP address based on indices [6,10)
-            let dst_ip = Ipv4Addr::new(
-                payload[6],
-                payload[7],
-                payload[8],
-                payload[9]
-            );
+            let dst_ip = Ipv4Addr::new(payload[6], payload[7], payload[8], payload[9]);
             debug!("Forging dst IP to: {:02X?}", dst_ip.octets());
             reply.set_src(ipv4.dst());
             reply.set_dst(dst_ip);
@@ -96,15 +82,13 @@ fn parse_ipv4_gdp(packet: &Mbuf, store: Store) -> Result<Gdp<Ipv4>> {
         _ => {
             reply.set_src(ipv4.dst());
             reply.set_dst(ipv4.src());
-        },
+        }
     }
 
-    
     let mut reply = reply.push::<Udp<Ipv4>>()?;
     reply.set_src_port(udp.dst_port());
     reply.set_dst_port(udp.src_port());
 
-    
     let mut reply = reply.push::<Gdp<Ipv4>>()?;
 
     // Reply based on action
@@ -116,7 +100,7 @@ fn parse_ipv4_gdp(packet: &Mbuf, store: Store) -> Result<Gdp<Ipv4>> {
         GdpAction::PING => {
             println!("Received PING!");
             reply.set_action(GdpAction::PONG);
-        },
+        }
         GdpAction::PONG => println!("Received PONG!"),
         _ => (),
     }
