@@ -22,41 +22,89 @@ use crate::kvs::Store;
 use anyhow::Result;
 use capsule::batch::{self, Batch, Pipeline, Poll};
 use capsule::config::load_config;
-use capsule::debug;
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::{Mbuf, PortQueue, Runtime};
 use std::net::Ipv4Addr;
-use tracing::Level;
+use tracing::{debug, Level};
 use tracing_subscriber::fmt;
 
 mod gdp;
 mod kvs;
 
 fn parse_ipv4_gdp(packet: &Mbuf, store: Store) -> Result<Gdp<Ipv4>> {
-    let reply = Mbuf::new()?;
-
+    // Parse packet
     let ethernet = packet.peek::<Ethernet>()?;
-    let mut reply = reply.push::<Ethernet>()?;
-    reply.set_src(ethernet.dst());
-    reply.set_dst(ethernet.src());
-
     let ipv4 = ethernet.peek::<Ipv4>()?;
-    let mut reply = reply.push::<Ipv4>()?;
-    reply.set_src(ipv4.dst());
-    reply.set_dst(ipv4.src());
-    reply.set_ttl(150);
-
     let udp = ipv4.peek::<Udp<Ipv4>>()?;
+    let gdp = udp.peek::<Gdp<Ipv4>>()?;
+
+    let payload = gdp
+        .mbuf()
+        .read_data_slice::<u8>(gdp.payload_offset(), gdp.payload_len())?;
+    let payload = unsafe { payload.as_ref() };
+
+    // Construct reply
+    let reply = Mbuf::new()?;
+    // Ethernet-frame level
+    let mut reply = reply.push::<Ethernet>()?;
+    match gdp.action()? {
+        GdpAction::FPING => {
+            // Forge PING based on MAC address in first
+            // First 6 octets of payload
+            let dst_mac = MacAddr::new(
+                payload[0], payload[1], payload[2], payload[3], payload[4], payload[5],
+            );
+            debug!("Received FPING");
+            debug!("Forging dst MAC to to: {:02X?}", dst_mac.octets());
+            reply.set_src(ethernet.dst());
+            reply.set_dst(dst_mac);
+        }
+        _ => {
+            reply.set_src(ethernet.dst());
+            reply.set_dst(ethernet.src());
+        }
+    }
+    // IP Layer
+    let mut reply = reply.push::<Ipv4>()?;
+    reply.set_ttl(150);
+    match gdp.action()? {
+        GdpAction::FPING => {
+            // Forge PING dst IP address based on indices [6,10)
+            let dst_ip = Ipv4Addr::new(payload[6], payload[7], payload[8], payload[9]);
+            debug!("Forging dst IP to: {:02X?}", dst_ip.octets());
+            reply.set_src(ipv4.dst());
+            reply.set_dst(dst_ip);
+        }
+        _ => {
+            reply.set_src(ipv4.dst());
+            reply.set_dst(ipv4.src());
+        }
+    }
+
     let mut reply = reply.push::<Udp<Ipv4>>()?;
     reply.set_src_port(udp.dst_port());
     reply.set_dst_port(udp.src_port());
 
-    let gdp = udp.peek::<Gdp<Ipv4>>()?;
     let mut reply = reply.push::<Gdp<Ipv4>>()?;
 
+    // Reply based on action
+    match gdp.action()? {
+        GdpAction::FPING => {
+            // FPING will cause the outgoing reply to be forwarded
+            reply.set_action(GdpAction::PING);
+        }
+        GdpAction::PING => {
+            println!("Received PING!");
+            reply.set_action(GdpAction::PONG);
+        }
+        GdpAction::PONG => println!("Received PONG!"),
+        _ => (),
+    }
+
+    // Side effects
     match gdp.action()? {
         GdpAction::NOOP => (),
         GdpAction::GET => {
@@ -65,13 +113,8 @@ fn parse_ipv4_gdp(packet: &Mbuf, store: Store) -> Result<Gdp<Ipv4>> {
                 .and_then(|value| Some(reply.set_value(value)));
         }
         GdpAction::PUT => store.put(gdp.key(), gdp.value()),
+        _ => (),
     }
-
-    let payload = gdp
-        .mbuf()
-        .read_data_slice::<u8>(gdp.payload_offset(), gdp.payload_len())?;
-    let payload = unsafe { payload.as_ref() };
-
     let message = "This is the server: ".as_bytes();
 
     let offset = reply.payload_offset();
@@ -170,10 +213,11 @@ fn main() -> Result<()> {
 
     let config = load_config()?;
 
-    let store = Store::new();
+    let store1 = Store::new();
+    let store2 = Store::new();
 
     Runtime::build(config)?
-        // .add_pipeline_to_port("eth1", move |q| install_outgoing(q, store.clone()))?
-        .add_pipeline_to_port("eth1", move |q| install(q, store.clone()))?
+        .add_pipeline_to_port("eth1", move |q| install(q, store1.clone()))?
+        .add_pipeline_to_port("eth2", move |q| install(q, store2.clone()))?
         .execute()
 }
