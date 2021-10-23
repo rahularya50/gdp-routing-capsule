@@ -11,19 +11,18 @@ use std::ptr::NonNull;
 
 const MAGIC_NUMBERS: u16 = u16::from_be_bytes([0x26, 0x2a]);
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum GdpAction {
-    NOOP = 0,
-    PUT = 1,
-    GET = 2,
-    PING = 3,
-    PONG = 4,
-    FPING = 5,
+    Noop = 0,
+    Put = 1,
+    Get = 2,
+    RibGet = 3,
+    RibReply = 4,
 }
 
 impl Default for GdpAction {
     fn default() -> Self {
-        GdpAction::NOOP
+        GdpAction::Noop
     }
 }
 
@@ -32,12 +31,11 @@ impl TryFrom<u8> for GdpAction {
 
     fn try_from(v: u8) -> Result<Self> {
         match v {
-            x if x == GdpAction::NOOP as u8 => Ok(GdpAction::NOOP),
-            x if x == GdpAction::GET as u8 => Ok(GdpAction::GET),
-            x if x == GdpAction::PUT as u8 => Ok(GdpAction::PUT),
-            x if x == GdpAction::PING as u8 => Ok(GdpAction::PING),
-            x if x == GdpAction::PONG as u8 => Ok(GdpAction::PONG),
-            x if x == GdpAction::FPING as u8 => Ok(GdpAction::FPING),
+            x if x == GdpAction::Noop as u8 => Ok(GdpAction::Noop),
+            x if x == GdpAction::Get as u8 => Ok(GdpAction::Get),
+            x if x == GdpAction::Put as u8 => Ok(GdpAction::Put),
+            x if x == GdpAction::RibGet as u8 => Ok(GdpAction::RibGet),
+            x if x == GdpAction::RibReply as u8 => Ok(GdpAction::RibReply),
             _ => Err(anyhow::Error::msg("Unknown action byte")),
         }
     }
