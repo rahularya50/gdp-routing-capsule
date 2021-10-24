@@ -1,19 +1,18 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::RwLock;
 
 struct StoreContents {
     lookup: HashMap<[u8; 32], [u8; 32]>,
 }
 
-#[derive(Clone)]
-pub struct Store(Arc<RwLock<StoreContents>>);
+#[derive(Copy, Clone)]
+pub struct Store(&'static RwLock<StoreContents>);
 
 impl Store {
     pub fn new() -> Self {
-        Store(Arc::new(RwLock::new(StoreContents {
+        Store(Box::leak(Box::new(RwLock::new(StoreContents {
             lookup: HashMap::new(),
-        })))
+        }))))
     }
 
     fn with_mut_contents<F, T>(&self, f: F) -> T

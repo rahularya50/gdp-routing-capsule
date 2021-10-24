@@ -8,10 +8,10 @@ use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::fmt;
 use std::ptr::NonNull;
-
+use strum_macros::EnumIter;
 const MAGIC_NUMBERS: u16 = u16::from_be_bytes([0x26, 0x2a]);
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, EnumIter)]
 pub enum GdpAction {
     Noop = 0,
     Put = 1,

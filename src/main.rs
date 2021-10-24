@@ -15,13 +15,14 @@
 *
 * SPDX-License-Identifier: Apache-2.0
 */
-
+#![feature(trait_alias)]
 use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
 use crate::kvs::Store;
 use crate::rib::handle_rib_query;
 use crate::rib::handle_rib_reply;
 use anyhow::Result;
+use capsule::batch::Bridge;
 use capsule::batch::{Batch, Pipeline, Poll};
 use capsule::compose;
 use capsule::config::load_config;
@@ -29,6 +30,7 @@ use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::{Mbuf, PortQueue, Runtime};
+use strum::IntoEnumIterator;
 use tracing::{debug, Level};
 use tracing_subscriber::fmt;
 
@@ -98,29 +100,39 @@ fn get_gdp_action(packet: &Mbuf) -> GdpAction {
     .unwrap_or(GdpAction::Noop)
 }
 
-fn install_switch_pipeline(q: PortQueue, store: Store) -> impl Pipeline {
-    Poll::new(q.clone())
-        .group_by(get_gdp_action,
-    |groups| {
-        let store_get = store.clone();
-        let store_reply = store.clone();
-        compose!( groups {
-            GdpAction::Get => |group| { group.map(move |packet| try_forward_gdp(&packet, store_get.clone()) ) }
-            GdpAction::RibReply => |group| { group.for_each(move |packet| handle_rib_reply(&packet, store_reply.clone())).filter(|_| false) }
-            _ => |group| { group.filter(|_| false) } // drop everything else for now
-        })
-    }
-        )
-        .send(q)
+trait GdpPipeline = Fn(GdpAction, Bridge<Mbuf>) -> Box<dyn Batch<Item = Mbuf>> + Copy + 'static;
+
+fn switch_pipeline(store: Store) -> impl GdpPipeline {
+    return move |action, group: Bridge<Mbuf>| match action {
+        GdpAction::Get => Box::new(group.map(move |packet| try_forward_gdp(&packet, store))) as _,
+        GdpAction::RibReply => Box::new(
+            group
+                .for_each(move |packet| handle_rib_reply(&packet, store))
+                .filter(|_| false),
+        ) as _,
+        _ => Box::new(group.filter(|_| false)) as _,
+    };
 }
 
-fn install_rib_pipeline(q: PortQueue, store: Store) -> impl Pipeline {
+fn rib_pipeline(store: Store) -> impl GdpPipeline {
+    return move |action, group: Bridge<Mbuf>| match action {
+        GdpAction::RibGet => {
+            Box::new(group.replace(move |packet| handle_rib_query(&packet, store.clone()))) as _
+        }
+        _ => Box::new(group.filter(|_| false)) as _,
+    };
+}
+
+fn install_gdp_pipeline<T: GdpPipeline>(q: PortQueue, gdp_pipeline: T) -> impl Pipeline {
     Poll::new(q.clone())
         .group_by(get_gdp_action, |groups| {
-            compose!( groups {
-                GdpAction::RibGet => |group| { group.replace(move |packet| handle_rib_query(&packet, store.clone())) }
-                _ => |group| { group.filter(|_| false) } // drop everything else for now
-            })
+            for variant in GdpAction::iter() {
+                groups.insert(
+                    Some(variant),
+                    Box::new(move |group| gdp_pipeline(variant, group)),
+                );
+            }
+            groups.insert(None, Box::new(|group| Box::new(group.filter(|_| false))));
         })
         .send(q)
 }
@@ -137,7 +149,11 @@ fn main() -> Result<()> {
     let store2 = Store::new();
 
     Runtime::build(config)?
-        .add_pipeline_to_port("eth1", move |q| install_switch_pipeline(q, store1.clone()))?
-        .add_pipeline_to_port("eth2", move |q| install_rib_pipeline(q, store2.clone()))?
+        .add_pipeline_to_port("eth1", move |q| {
+            install_gdp_pipeline(q, switch_pipeline(store1))
+        })?
+        .add_pipeline_to_port("eth2", move |q| {
+            install_gdp_pipeline(q, rib_pipeline(store1))
+        })?
         .execute()
 }
