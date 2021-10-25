@@ -38,11 +38,10 @@ mod gdp;
 mod kvs;
 mod rib;
 
-fn try_forward_gdp(packet: &Mbuf, store: Store) -> Result<Mbuf> {
-    let ethernet = packet.peek::<Ethernet>()?;
-    let ipv4 = ethernet.peek::<Ipv4>()?;
-    let udp = ipv4.peek::<Udp<Ipv4>>()?;
-    let gdp = udp.peek::<Gdp<Ipv4>>()?;
+fn try_forward_gdp(gdp: &Gdp<Ipv4>, store: Store) -> Result<Gdp<Ipv4>> {
+    let udp = gdp.envelope();
+    let ipv4 = udp.envelope();
+    let ethernet = ipv4.envelope();
 
     let payload = gdp
         .mbuf()
@@ -85,25 +84,14 @@ fn try_forward_gdp(packet: &Mbuf, store: Store) -> Result<Mbuf> {
     let envelope = envelope.envelope();
     debug!(?envelope);
 
-    Ok(reply.deparse().deparse().deparse().deparse())
+    Ok(reply)
 }
 
-fn get_gdp_action(packet: &Mbuf) -> GdpAction {
-    (|packet: &Mbuf| {
-        packet
-            .peek::<Ethernet>()?
-            .peek::<Ipv4>()?
-            .peek::<Udp<Ipv4>>()?
-            .peek::<Gdp<Ipv4>>()?
-            .action()
-    })(packet)
-    .unwrap_or(GdpAction::Noop)
-}
-
-trait GdpPipeline = Fn(GdpAction, Bridge<Mbuf>) -> Box<dyn Batch<Item = Mbuf>> + Copy + 'static;
+trait GdpPipeline =
+    Fn(GdpAction, Bridge<Gdp<Ipv4>>) -> Box<dyn Batch<Item = Gdp<Ipv4>>> + Copy + 'static;
 
 fn switch_pipeline(store: Store) -> impl GdpPipeline {
-    return move |action, group: Bridge<Mbuf>| match action {
+    return move |action, group: Bridge<Gdp<Ipv4>>| match action {
         GdpAction::Get => Box::new(group.map(move |packet| try_forward_gdp(&packet, store))) as _,
         GdpAction::RibReply => Box::new(
             group
@@ -115,9 +103,9 @@ fn switch_pipeline(store: Store) -> impl GdpPipeline {
 }
 
 fn rib_pipeline(store: Store) -> impl GdpPipeline {
-    return move |action, group: Bridge<Mbuf>| match action {
+    return move |action, group: Bridge<Gdp<Ipv4>>| match action {
         GdpAction::RibGet => {
-            Box::new(group.replace(move |packet| handle_rib_query(&packet, store.clone()))) as _
+            Box::new(group.replace(move |packet| handle_rib_query(&packet, store))) as _
         }
         _ => Box::new(group.filter(|_| false)) as _,
     };
@@ -125,15 +113,25 @@ fn rib_pipeline(store: Store) -> impl GdpPipeline {
 
 fn install_gdp_pipeline<T: GdpPipeline>(q: PortQueue, gdp_pipeline: T) -> impl Pipeline {
     Poll::new(q.clone())
-        .group_by(get_gdp_action, |groups| {
-            for variant in GdpAction::iter() {
-                groups.insert(
-                    Some(variant),
-                    Box::new(move |group| gdp_pipeline(variant, group)),
-                );
-            }
-            groups.insert(None, Box::new(|group| Box::new(group.filter(|_| false))));
+        .map(|packet| {
+            Ok(packet
+                .parse::<Ethernet>()?
+                .parse::<Ipv4>()?
+                .parse::<Udp<Ipv4>>()?
+                .parse::<Gdp<Ipv4>>()?)
         })
+        .group_by(
+            |packet| packet.action().unwrap_or(GdpAction::Noop),
+            |groups| {
+                for variant in GdpAction::iter() {
+                    groups.insert(
+                        Some(variant),
+                        Box::new(move |group| gdp_pipeline(variant, group)),
+                    );
+                }
+                groups.insert(None, Box::new(|group| Box::new(group.filter(|_| false))));
+            },
+        )
         .send(q)
 }
 
@@ -153,7 +151,7 @@ fn main() -> Result<()> {
             install_gdp_pipeline(q, switch_pipeline(store1))
         })?
         .add_pipeline_to_port("eth2", move |q| {
-            install_gdp_pipeline(q, rib_pipeline(store1))
+            install_gdp_pipeline(q, rib_pipeline(store2))
         })?
         .execute()
 }

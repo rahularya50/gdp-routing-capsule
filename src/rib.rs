@@ -39,11 +39,11 @@ pub fn create_rib_request(
     Ok(message)
 }
 
-pub fn handle_rib_reply(packet: &Mbuf, store: Store) -> Result<()> {
+pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store) -> Result<()> {
     Err(anyhow::format_err!("not yet implemented"))
 }
 
-pub fn handle_rib_query(packet: &Mbuf, store: Store) -> Result<Mbuf> {
+pub fn handle_rib_query(packet: &Gdp<Ipv4>, store: Store) -> Result<Gdp<Ipv4>> {
     Err(anyhow::format_err!("not yet implemented"))
 }
 
