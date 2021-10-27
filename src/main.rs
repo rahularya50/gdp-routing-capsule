@@ -15,7 +15,6 @@
 *
 * SPDX-License-Identifier: Apache-2.0
 */
-#![feature(trait_alias)]
 use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
 use crate::kvs::Store;
@@ -24,78 +23,49 @@ use crate::rib::handle_rib_reply;
 use anyhow::Result;
 use capsule::batch::Bridge;
 use capsule::batch::{Batch, Pipeline, Poll};
-use capsule::compose;
 use capsule::config::load_config;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::{Mbuf, PortQueue, Runtime};
 use strum::IntoEnumIterator;
-use tracing::{debug, Level};
+use tracing::Level;
 use tracing_subscriber::fmt;
 
 mod gdp;
 mod kvs;
 mod rib;
 
-fn try_forward_gdp(gdp: &Gdp<Ipv4>, store: Store) -> Result<Gdp<Ipv4>> {
+fn try_forward_gdp(gdp: Gdp<Ipv4>, store: Store) -> Result<Gdp<Ipv4>> {
     let udp = gdp.envelope();
     let ipv4 = udp.envelope();
     let ethernet = ipv4.envelope();
 
-    let payload = gdp
-        .mbuf()
-        .read_data_slice::<u8>(gdp.payload_offset(), gdp.payload_len())?;
-    let payload = unsafe { payload.as_ref() };
+    match store.with_contents(|store| store.forwarding_table.get(&gdp.dst()).cloned()) {
+        Some(dst) => todo!(),
+        None => todo!(),
+    }
 
-    // Construct reply
-    let reply = Mbuf::new()?;
-    // Ethernet-frame level
-    let mut reply = reply.push::<Ethernet>()?;
-
-    // IP Layer
-    let mut reply = reply.push::<Ipv4>()?;
-    reply.set_ttl(150);
-
-    let mut reply = reply.push::<Udp<Ipv4>>()?;
-    reply.set_src_port(udp.dst_port());
-    reply.set_dst_port(udp.src_port());
-
-    let mut reply = reply.push::<Gdp<Ipv4>>()?;
-
-    let message = "This is the server: ".as_bytes();
-
-    let offset = reply.payload_offset();
-    reply
-        .mbuf_mut()
-        .extend(offset, message.len() + payload.len())?;
-    reply.mbuf_mut().write_data_slice(offset, &message)?;
-    reply
-        .mbuf_mut()
-        .write_data_slice(offset + message.len(), payload)?;
-
-    reply.reconcile_all();
-
-    debug!(?reply);
-    let envelope = reply.envelope();
-    debug!(?envelope);
-    let envelope = envelope.envelope();
-    debug!(?envelope);
-    let envelope = envelope.envelope();
-    debug!(?envelope);
-
-    Ok(reply)
+    Ok(gdp)
 }
 
-trait GdpPipeline =
-    Fn(GdpAction, Bridge<Gdp<Ipv4>>) -> Box<dyn Batch<Item = Gdp<Ipv4>>> + Copy + 'static;
+trait GdpPipeline:
+    Fn(GdpAction, Bridge<Gdp<Ipv4>>) -> Box<dyn Batch<Item = Gdp<Ipv4>>> + Copy + 'static
+{
+}
+impl<T: Fn(GdpAction, Bridge<Gdp<Ipv4>>) -> Box<dyn Batch<Item = Gdp<Ipv4>>> + Copy + 'static>
+    GdpPipeline for T
+{
+}
 
 fn switch_pipeline(store: Store) -> impl GdpPipeline {
     return move |action, group: Bridge<Gdp<Ipv4>>| match action {
-        GdpAction::Get => Box::new(group.map(move |packet| try_forward_gdp(&packet, store))) as _,
+        GdpAction::Forward => {
+            Box::new(group.map(move |packet| try_forward_gdp(packet, store))) as _
+        }
         GdpAction::RibReply => Box::new(
             group
-                .for_each(move |packet| handle_rib_reply(&packet, store))
+                .for_each(move |packet| handle_rib_reply(packet, store))
                 .filter(|_| false),
         ) as _,
         _ => Box::new(group.filter(|_| false)) as _,
@@ -105,7 +75,7 @@ fn switch_pipeline(store: Store) -> impl GdpPipeline {
 fn rib_pipeline(store: Store) -> impl GdpPipeline {
     return move |action, group: Bridge<Gdp<Ipv4>>| match action {
         GdpAction::RibGet => {
-            Box::new(group.replace(move |packet| handle_rib_query(&packet, store))) as _
+            Box::new(group.replace(move |packet| handle_rib_query(packet, store))) as _
         }
         _ => Box::new(group.filter(|_| false)) as _,
     };

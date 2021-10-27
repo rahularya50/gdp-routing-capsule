@@ -1,14 +1,16 @@
+use crate::kvs::GdpName;
+use crate::Ipv4;
 use anyhow::{anyhow, Result};
 use capsule::packets::ip::IpPacket;
-use capsule::packets::types::u16be;
+use capsule::packets::types::{u16be, u32be};
 use capsule::packets::Udp;
 use capsule::packets::{Internal, Packet};
 use capsule::{ensure, SizeOf};
 use std::convert::TryFrom;
 use std::convert::TryInto;
-use std::fmt;
 use std::ptr::NonNull;
 use strum_macros::EnumIter;
+
 const MAGIC_NUMBERS: u16 = u16::from_be_bytes([0x26, 0x2a]);
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, EnumIter)]
@@ -18,6 +20,7 @@ pub enum GdpAction {
     Get = 2,
     RibGet = 3,
     RibReply = 4,
+    Forward = 5,
 }
 
 impl Default for GdpAction {
@@ -69,31 +72,53 @@ impl<T: IpPacket> Gdp<T> {
     }
 
     #[inline]
-    pub fn key(&self) -> [u8; 32] {
+    pub fn key(&self) -> u32 {
         self.header().key
     }
 
     #[inline]
-    pub fn set_key(&mut self, key: [u8; 32]) {
+    pub fn set_key(&mut self, key: u32) {
         self.header_mut().key = key;
     }
 
     #[inline]
-    pub fn value(&self) -> [u8; 32] {
+    pub fn value(&self) -> u32 {
         self.header().value
     }
 
     #[inline]
-    pub fn set_value(&mut self, value: [u8; 32]) {
+    pub fn set_value(&mut self, value: u32) {
         self.header_mut().value = value;
     }
-}
 
-impl<T: IpPacket> fmt::Debug for Gdp<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("gdp")
-            .field("$action", &self.action())
-            .finish()
+    #[inline]
+    pub fn ttl(&self) -> u8 {
+        self.header().ttl
+    }
+
+    #[inline]
+    pub fn set_ttl(&mut self, ttl: u8) {
+        self.header_mut().ttl = ttl;
+    }
+
+    #[inline]
+    pub fn src(&self) -> GdpName {
+        self.header().src
+    }
+
+    #[inline]
+    pub fn set_src(&mut self, src: GdpName) {
+        self.header_mut().src = src;
+    }
+
+    #[inline]
+    pub fn dst(&self) -> GdpName {
+        self.header().dst
+    }
+
+    #[inline]
+    pub fn set_dst(&mut self, dst: GdpName) {
+        self.header_mut().dst = dst;
     }
 }
 
@@ -178,8 +203,11 @@ impl<T: IpPacket> Packet for Gdp<T> {
 #[derive(Clone, Copy, Debug, Default, SizeOf)]
 #[repr(C)]
 struct GdpHeader {
-    field: u16be,
-    action: u8,
-    key: [u8; 32],
-    value: [u8; 32],
+    field: u16be, // nonce used to identify GDP packets
+    ttl: u8,      // number of GDP-level hops remaining before packet is dropped
+    action: u8,   // GDP_ACTION enum
+    src: GdpName, // 256-bit source
+    dst: GdpName, // 256-bit destination
+    key: u32,     // query key, used in meta-packets
+    value: u32,   // query value, used in meta-packets
 }
