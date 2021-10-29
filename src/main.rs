@@ -1,3 +1,5 @@
+use std::net::Ipv4Addr;
+
 /*
 * Copyright 2019 Comcast Cable Communications Management, LLC
 *
@@ -18,66 +20,103 @@
 use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
 use crate::kvs::Store;
+use crate::rib::create_rib_request;
 use crate::rib::handle_rib_query;
 use crate::rib::handle_rib_reply;
+use anyhow::anyhow;
 use anyhow::Result;
 use capsule::batch::Bridge;
+use capsule::batch::GroupByBatchBuilder;
 use capsule::batch::{Batch, Pipeline, Poll};
+use capsule::compose;
 use capsule::config::load_config;
 use capsule::packets::ip::v4::Ipv4;
+use capsule::packets::ip::IpPacket;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::{Mbuf, PortQueue, Runtime};
+use std::collections::HashMap;
 use strum::IntoEnumIterator;
 use tracing::Level;
 use tracing_subscriber::fmt;
 
+mod compose;
 mod gdp;
 mod kvs;
 mod rib;
 
-fn try_forward_gdp(gdp: Gdp<Ipv4>, store: Store) -> Result<Gdp<Ipv4>> {
-    let udp = gdp.envelope();
-    let ipv4 = udp.envelope();
-    let ethernet = ipv4.envelope();
+fn find_destination(gdp: &Gdp<Ipv4>, store: Store) -> Option<Ipv4Addr> {
+    store.with_contents(|store| store.forwarding_table.get(&gdp.dst()).cloned())
+}
 
-    match store.with_contents(|store| store.forwarding_table.get(&gdp.dst()).cloned()) {
-        Some(dst) => todo!(),
-        None => todo!(),
-    }
+fn bounce_udp(udp: &mut Udp<Ipv4>) -> &mut Udp<Ipv4> {
+    let udp_src_port = udp.dst_port();
+    let udp_dst_port = udp.src_port();
+    udp.set_src_port(udp_src_port);
+    udp.set_dst_port(udp_dst_port);
+
+    let ethernet = udp.envelope_mut();
+    let eth_src = ethernet.dst();
+    let eth_dst = ethernet.src();
+    ethernet.set_src(eth_src);
+    ethernet.set_dst(eth_dst);
+
+    udp
+}
+
+fn forward_gdp(mut gdp: Gdp<Ipv4>, dst: Ipv4Addr) -> Result<Gdp<Ipv4>> {
+    let udp = gdp.envelope_mut();
+    let ipv4 = udp.envelope_mut();
+
+    ipv4.set_src(ipv4.dst());
+    ipv4.set_dst(dst);
 
     Ok(gdp)
 }
 
-trait GdpPipeline:
-    Fn(GdpAction, Bridge<Gdp<Ipv4>>) -> Box<dyn Batch<Item = Gdp<Ipv4>>> + Copy + 'static
-{
-}
-impl<T: Fn(GdpAction, Bridge<Gdp<Ipv4>>) -> Box<dyn Batch<Item = Gdp<Ipv4>>> + Copy + 'static>
-    GdpPipeline for T
-{
+fn bounce_gdp(mut gdp: Gdp<Ipv4>) -> Result<Gdp<Ipv4>> {
+    gdp.remove_payload()?;
+    gdp.set_action(GdpAction::Nack);
+    bounce_udp(gdp.envelope_mut());
+    gdp.reconcile_all();
+    Ok(gdp)
 }
 
+type GdpMap<'a> = &'a mut HashMap<Option<GdpAction>, Box<GroupByBatchBuilder<Gdp<Ipv4>>>>;
+trait GdpPipeline: FnOnce(GdpMap) + Copy + 'static {}
+impl<T: FnOnce(GdpMap) + Copy + 'static> GdpPipeline for T {}
+
 fn switch_pipeline(store: Store) -> impl GdpPipeline {
-    return move |action, group: Bridge<Gdp<Ipv4>>| match action {
-        GdpAction::Forward => {
-            Box::new(group.map(move |packet| try_forward_gdp(packet, store))) as _
+    return move |lookup: GdpMap| {
+        move_compose! (lookup {
+        GdpAction::Forward => |group| {
+            group.group_by(
+                move |packet| find_destination(packet, store).is_some(),
+                |lookup| move_compose! ( lookup {
+                    true => |group| {group.map(move |packet| {
+                        let dst = find_destination(&packet, store).ok_or(anyhow!("can't find the destination"))?;
+                        forward_gdp(packet, dst)
+                    })}
+                    false => |group| {group.map(bounce_gdp)}//.emit(create_rib_request(Mbuf::new(), pack))}
+                }))
         }
-        GdpAction::RibReply => Box::new(
-            group
-                .for_each(move |packet| handle_rib_reply(packet, store))
-                .filter(|_| false),
-        ) as _,
-        _ => Box::new(group.filter(|_| false)) as _,
+        GdpAction::RibReply => |group| {
+            group.for_each(move |packet| handle_rib_reply(packet, store))
+                 .filter(|_| false)
+        }
+        _ => |group| {group.filter(|_| false)}
+        })
     };
 }
 
 fn rib_pipeline(store: Store) -> impl GdpPipeline {
-    return move |action, group: Bridge<Gdp<Ipv4>>| match action {
-        GdpAction::RibGet => {
-            Box::new(group.replace(move |packet| handle_rib_query(packet, store))) as _
-        }
-        _ => Box::new(group.filter(|_| false)) as _,
+    return move |lookup: GdpMap| {
+        move_compose!(lookup {
+            GdpAction::RibGet => |group| {
+                group.replace(move |packet| handle_rib_query(packet, store))
+            }
+            _ => |group| {group.filter(|_| false)}
+        })
     };
 }
 
@@ -92,15 +131,7 @@ fn install_gdp_pipeline<T: GdpPipeline>(q: PortQueue, gdp_pipeline: T) -> impl P
         })
         .group_by(
             |packet| packet.action().unwrap_or(GdpAction::Noop),
-            |groups| {
-                for variant in GdpAction::iter() {
-                    groups.insert(
-                        Some(variant),
-                        Box::new(move |group| gdp_pipeline(variant, group)),
-                    );
-                }
-                groups.insert(None, Box::new(|group| Box::new(group.filter(|_| false))));
-            },
+            gdp_pipeline,
         )
         .send(q)
 }
