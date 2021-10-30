@@ -20,6 +20,7 @@ use std::net::Ipv4Addr;
 use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
 use crate::kvs::Store;
+use crate::pipeline::GdpPipeline;
 use crate::rib::create_rib_request;
 use crate::rib::handle_rib_query;
 use crate::rib::handle_rib_reply;
@@ -40,9 +41,9 @@ use strum::IntoEnumIterator;
 use tracing::Level;
 use tracing_subscriber::fmt;
 
-mod compose;
 mod gdp;
 mod kvs;
+mod pipeline;
 mod rib;
 
 fn find_destination(gdp: &Gdp<Ipv4>, store: Store) -> Option<Ipv4Addr> {
@@ -82,41 +83,33 @@ fn bounce_gdp(mut gdp: Gdp<Ipv4>) -> Result<Gdp<Ipv4>> {
     Ok(gdp)
 }
 
-type GdpMap<'a> = &'a mut HashMap<Option<GdpAction>, Box<GroupByBatchBuilder<Gdp<Ipv4>>>>;
-trait GdpPipeline: FnOnce(GdpMap) + Copy + 'static {}
-impl<T: FnOnce(GdpMap) + Copy + 'static> GdpPipeline for T {}
-
 fn switch_pipeline(store: Store) -> impl GdpPipeline {
-    return move |lookup: GdpMap| {
-        move_compose! (lookup {
+    return pipeline! {
         GdpAction::Forward => |group| {
             group.group_by(
                 move |packet| find_destination(packet, store).is_some(),
-                |lookup| move_compose! ( lookup {
+                pipeline! {
                     true => |group| {group.map(move |packet| {
                         let dst = find_destination(&packet, store).ok_or(anyhow!("can't find the destination"))?;
                         forward_gdp(packet, dst)
                     })}
                     false => |group| {group.map(bounce_gdp)}//.emit(create_rib_request(Mbuf::new(), pack))}
-                }))
+                })
         }
         GdpAction::RibReply => |group| {
             group.for_each(move |packet| handle_rib_reply(packet, store))
-                 .filter(|_| false)
+                .filter(|_| false)
         }
         _ => |group| {group.filter(|_| false)}
-        })
     };
 }
 
 fn rib_pipeline(store: Store) -> impl GdpPipeline {
-    return move |lookup: GdpMap| {
-        move_compose!(lookup {
-            GdpAction::RibGet => |group| {
-                group.replace(move |packet| handle_rib_query(packet, store))
-            }
-            _ => |group| {group.filter(|_| false)}
-        })
+    return pipeline! {
+        GdpAction::RibGet => |group| {
+            group.replace(move |packet| handle_rib_query(packet, store))
+        }
+        _ => |group| {group.filter(|_| false)}
     };
 }
 
