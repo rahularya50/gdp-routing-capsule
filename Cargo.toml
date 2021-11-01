@@ -16,6 +16,7 @@ path = "src/main.rs"
 doctest = false
 
 [dependencies]
+aes-gcm = "0.9.4"
 anyhow = "1.0"
 capsule = "0.1"
 tracing = "0.1"

@@ -17,6 +17,7 @@ use std::net::Ipv4Addr;
 *
 * SPDX-License-Identifier: Apache-2.0
 */
+use crate::dtls::{decrypt_gdp, encrypt_gdp};
 use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
 use crate::kvs::Store;
@@ -41,6 +42,7 @@ use strum::IntoEnumIterator;
 use tracing::Level;
 use tracing_subscriber::fmt;
 
+mod dtls;
 mod gdp;
 mod kvs;
 mod pipeline;
@@ -120,12 +122,21 @@ fn install_gdp_pipeline<T: GdpPipeline>(q: PortQueue, gdp_pipeline: T) -> impl P
                 .parse::<Ethernet>()?
                 .parse::<Ipv4>()?
                 .parse::<Udp<Ipv4>>()?
-                .parse::<Gdp<Ipv4>>()?)
+                )
+        })
+        .map(|packet| {
+            decrypt_gdp(packet)
+        })
+        .map(|packet| {
+            Ok(packet.parse::<Gdp<Ipv4>>()?)
         })
         .group_by(
             |packet| packet.action().unwrap_or(GdpAction::Noop),
             gdp_pipeline,
         )
+        .map(|packet| {
+            encrypt_gdp(packet.envelope().clone()) // obviously this doesn't work
+        })
         .send(q)
 }
 
