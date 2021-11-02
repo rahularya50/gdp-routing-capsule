@@ -20,30 +20,29 @@ use std::net::Ipv4Addr;
 use crate::dtls::{decrypt_gdp, encrypt_gdp};
 use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
+use crate::gdpbatch::GdpBatch;
 use crate::kvs::Store;
 use crate::pipeline::GdpPipeline;
 use crate::rib::create_rib_request;
-use capsule::batch::PacketTx;
-use capsule::Mbuf;
-
 use crate::rib::handle_rib_query;
 use crate::rib::handle_rib_reply;
 use anyhow::anyhow;
 use anyhow::Result;
 
 use capsule::batch::{Batch, Pipeline, Poll};
-
 use capsule::config::load_config;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
+use capsule::Mbuf;
 use capsule::{PortQueue, Runtime};
-
 use tracing::Level;
 use tracing_subscriber::fmt;
 
 mod dtls;
 mod gdp;
+mod gdpbatch;
+mod inject;
 mod kvs;
 mod pipeline;
 mod rib;
@@ -85,7 +84,7 @@ fn bounce_gdp(mut gdp: Gdp<Ipv4>) -> Result<Gdp<Ipv4>> {
     Ok(gdp)
 }
 
-fn switch_pipeline(mut q: PortQueue, store: Store) -> impl GdpPipeline {
+fn switch_pipeline(_q: PortQueue, store: Store) -> impl GdpPipeline {
     return pipeline! {
         GdpAction::Forward => |group| {
             group.group_by(
@@ -97,12 +96,12 @@ fn switch_pipeline(mut q: PortQueue, store: Store) -> impl GdpPipeline {
                     })}
                     false => |group| {
                         group
-                            .for_each(move |packet| {
-                                let src_ip = packet.envelope().envelope().src();
-                                let src_mac = packet.envelope().envelope().envelope().dst();
-                                Ok(q.transmit(vec![create_rib_request(Mbuf::new()?, packet.dst(), src_mac, src_ip, store)?]))
-                            })
-                            .map(bounce_gdp)
+                        .map(bounce_gdp)
+                        .inject(move |packet| {
+                            let src_ip = packet.envelope().envelope().src();
+                            let src_mac = packet.envelope().envelope().envelope().dst();
+                            create_rib_request(Mbuf::new()?, packet.dst(), src_mac, src_ip, store)
+                        })
                     }
                 })
         }

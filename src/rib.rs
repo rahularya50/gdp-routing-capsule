@@ -20,7 +20,7 @@ pub fn create_rib_request(
     src_mac: MacAddr,
     src_ip: Ipv4Addr,
     _store: Store,
-) -> Result<Mbuf> {
+) -> Result<Gdp<Ipv4>> {
     let mut message = message.push::<Ethernet>()?;
     message.set_src(src_mac);
     message.set_dst(MacAddr::new(0x02, 0x00, 0x00, 0xFF, 0xFF, 0x00));
@@ -40,7 +40,7 @@ pub fn create_rib_request(
 
     message.reconcile_all();
 
-    Ok(message.reset())
+    Ok(message)
 }
 
 pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store) -> Result<()> {
