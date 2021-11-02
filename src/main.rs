@@ -28,7 +28,6 @@ use crate::rib::handle_rib_reply;
 use anyhow::anyhow;
 use anyhow::Result;
 
-
 use capsule::batch::{Batch, Pipeline, Poll};
 
 use capsule::config::load_config;
@@ -37,7 +36,6 @@ use capsule::packets::ip::IpPacket;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::{PortQueue, Runtime};
-
 
 use tracing::Level;
 use tracing_subscriber::fmt;
@@ -123,15 +121,14 @@ fn install_gdp_pipeline<T: GdpPipeline>(q: PortQueue, gdp_pipeline: T) -> impl P
                 .parse::<Ipv4>()?
                 .parse::<Udp<Ipv4>>()?)
         })
-        .map(|packet| decrypt_gdp(packet))
+        .map(decrypt_gdp)
         .map(|packet| Ok(packet.parse::<Gdp<Ipv4>>()?))
         .group_by(
             |packet| packet.action().unwrap_or(GdpAction::Noop),
             gdp_pipeline,
         )
-        .map(|packet| {
-            encrypt_gdp(packet.deparse()) // obviously this doesn't work
-        })
+        .map(|packet| Ok(packet.deparse()))
+        .map(encrypt_gdp)
         .send(q)
 }
 
