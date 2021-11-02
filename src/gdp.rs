@@ -1,8 +1,8 @@
 use crate::kvs::GdpName;
-use crate::Ipv4;
+
 use anyhow::{anyhow, Result};
 use capsule::packets::ip::IpPacket;
-use capsule::packets::types::{u16be, u32be};
+use capsule::packets::types::u16be;
 use capsule::packets::Udp;
 use capsule::packets::{Internal, Packet};
 use capsule::{ensure, SizeOf};

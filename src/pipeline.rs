@@ -1,6 +1,6 @@
 use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
-use anyhow::Result;
+
 use capsule::batch::GroupByBatchBuilder;
 use capsule::packets::ip::v4::Ipv4;
 use std::collections::HashMap;

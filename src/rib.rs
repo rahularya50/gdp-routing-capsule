@@ -15,7 +15,7 @@ const RIB_PORT: u16 = 27182;
 
 pub fn create_rib_request(
     message: Mbuf,
-    key: [u8; 32],
+    _key: [u8; 32],
     src_mac: MacAddr,
     src_ip: Ipv4Addr,
     _store: Store,
@@ -48,7 +48,7 @@ pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store) -> Result<()> {
     Ok(())
 }
 
-pub fn handle_rib_query(packet: &Gdp<Ipv4>, store: Store) -> Result<Gdp<Ipv4>> {
+pub fn handle_rib_query(packet: &Gdp<Ipv4>, _store: Store) -> Result<Gdp<Ipv4>> {
     let udp = packet.envelope();
     let ipv4 = udp.envelope();
     let ethernet = ipv4.envelope();
