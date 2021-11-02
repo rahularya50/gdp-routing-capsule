@@ -1,5 +1,6 @@
 use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
+use crate::kvs::GdpName;
 use crate::kvs::Store;
 use anyhow::Result;
 use capsule::net::MacAddr;
@@ -15,11 +16,11 @@ const RIB_PORT: u16 = 27182;
 
 pub fn create_rib_request(
     message: Mbuf,
-    _key: [u8; 32],
+    key: GdpName,
     src_mac: MacAddr,
     src_ip: Ipv4Addr,
     _store: Store,
-) -> Result<Gdp<Ipv4>> {
+) -> Result<Mbuf> {
     let mut message = message.push::<Ethernet>()?;
     message.set_src(src_mac);
     message.set_dst(MacAddr::new(0x02, 0x00, 0x00, 0xFF, 0xFF, 0x00));
@@ -34,9 +35,12 @@ pub fn create_rib_request(
 
     let mut message = message.push::<Gdp<Ipv4>>()?;
 
+    message.set_action(GdpAction::RibGet);
+    message.set_key(key);
+
     message.reconcile_all();
 
-    Ok(message)
+    Ok(message.reset())
 }
 
 pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store) -> Result<()> {

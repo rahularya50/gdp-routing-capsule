@@ -22,6 +22,9 @@ use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
 use crate::kvs::Store;
 use crate::pipeline::GdpPipeline;
+use crate::rib::create_rib_request;
+use capsule::batch::PacketTx;
+use capsule::Mbuf;
 
 use crate::rib::handle_rib_query;
 use crate::rib::handle_rib_reply;
@@ -32,7 +35,6 @@ use capsule::batch::{Batch, Pipeline, Poll};
 
 use capsule::config::load_config;
 use capsule::packets::ip::v4::Ipv4;
-use capsule::packets::ip::IpPacket;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::{PortQueue, Runtime};
@@ -83,7 +85,7 @@ fn bounce_gdp(mut gdp: Gdp<Ipv4>) -> Result<Gdp<Ipv4>> {
     Ok(gdp)
 }
 
-fn switch_pipeline(store: Store) -> impl GdpPipeline {
+fn switch_pipeline(mut q: PortQueue, store: Store) -> impl GdpPipeline {
     return pipeline! {
         GdpAction::Forward => |group| {
             group.group_by(
@@ -93,7 +95,15 @@ fn switch_pipeline(store: Store) -> impl GdpPipeline {
                         let dst = find_destination(&packet, store).ok_or(anyhow!("can't find the destination"))?;
                         forward_gdp(packet, dst)
                     })}
-                    false => |group| {group.map(bounce_gdp)}//.emit(create_rib_request(Mbuf::new(), pack))}
+                    false => |group| {
+                        group
+                            .for_each(move |packet| {
+                                let src_ip = packet.envelope().envelope().src();
+                                let src_mac = packet.envelope().envelope().envelope().dst();
+                                Ok(q.transmit(vec![create_rib_request(Mbuf::new()?, packet.dst(), src_mac, src_ip, store)?]))
+                            })
+                            .map(bounce_gdp)
+                    }
                 })
         }
         GdpAction::RibReply => |group| {
@@ -104,7 +114,7 @@ fn switch_pipeline(store: Store) -> impl GdpPipeline {
     };
 }
 
-fn rib_pipeline(store: Store) -> impl GdpPipeline {
+fn rib_pipeline(_q: PortQueue, store: Store) -> impl GdpPipeline {
     return pipeline! {
         GdpAction::RibGet => |group| {
             group.replace(move |packet| handle_rib_query(packet, store))
@@ -145,10 +155,10 @@ fn main() -> Result<()> {
 
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| {
-            install_gdp_pipeline(q, switch_pipeline(store1))
+            install_gdp_pipeline(q.clone(), switch_pipeline(q.clone(), store1))
         })?
         .add_pipeline_to_port("eth2", move |q| {
-            install_gdp_pipeline(q, rib_pipeline(store2))
+            install_gdp_pipeline(q.clone(), rib_pipeline(q.clone(), store2))
         })?
         .execute()
 }

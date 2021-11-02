@@ -1,5 +1,5 @@
 use crate::Ipv4;
-use aes_gcm::aead::{Aead, Buffer, NewAead};
+use aes_gcm::aead::{Aead, NewAead};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use anyhow::{anyhow, Result};
 
