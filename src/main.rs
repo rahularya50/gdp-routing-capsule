@@ -17,7 +17,7 @@ use std::net::Ipv4Addr;
 *
 * SPDX-License-Identifier: Apache-2.0
 */
-use crate::dtls::{decrypt_gdp, encrypt_gdp};
+use crate::dtls::{decrypt_gdp, encrypt_gdp, DTls};
 use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
 use crate::gdpbatch::GdpBatch;
@@ -69,7 +69,8 @@ fn bounce_udp(udp: &mut Udp<Ipv4>) -> &mut Udp<Ipv4> {
 }
 
 fn forward_gdp(mut gdp: Gdp<Ipv4>, dst: Ipv4Addr) -> Result<Gdp<Ipv4>> {
-    let udp = gdp.envelope_mut();
+    let dtls = gdp.envelope_mut();
+    let udp = dtls.envelope_mut();
     let ipv4 = udp.envelope_mut();
 
     ipv4.set_src(ipv4.dst());
@@ -81,7 +82,7 @@ fn forward_gdp(mut gdp: Gdp<Ipv4>, dst: Ipv4Addr) -> Result<Gdp<Ipv4>> {
 fn bounce_gdp(mut gdp: Gdp<Ipv4>) -> Result<Gdp<Ipv4>> {
     gdp.remove_payload()?;
     gdp.set_action(GdpAction::Nack);
-    bounce_udp(gdp.envelope_mut());
+    bounce_udp(gdp.envelope_mut().envelope_mut());
     gdp.reconcile_all();
     Ok(gdp)
 }
@@ -101,8 +102,8 @@ fn switch_pipeline(_q: PortQueue, store: Store) -> impl GdpPipeline {
                         group
                         .map(bounce_gdp)
                         .inject(move |packet| {
-                            let src_ip = packet.envelope().envelope().src();
-                            let src_mac = packet.envelope().envelope().envelope().dst();
+                            let src_ip = packet.envelope().envelope().envelope().src();
+                            let src_mac = packet.envelope().envelope().envelope().envelope().dst();
                             create_rib_request(Mbuf::new()?, packet.dst(), src_mac, src_ip, store)
                         })
                     }
@@ -197,7 +198,8 @@ fn install_gdp_pipeline<T: GdpPipeline>(q: PortQueue, gdp_pipeline: T, nic_name:
             Ok(packet
                 .parse::<Ethernet>()?
                 .parse::<Ipv4>()?
-                .parse::<Udp<Ipv4>>()?)
+                .parse::<Udp<Ipv4>>()?
+                .parse::<DTls<Ipv4>>()?)
         })
         // .map(decrypt_gdp)
         .map(|packet| Ok(packet.parse::<Gdp<Ipv4>>()?))

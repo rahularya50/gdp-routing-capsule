@@ -2,8 +2,6 @@ use anyhow::Result;
 use capsule::batch::Batch;
 use capsule::batch::Disposition;
 
-
-
 #[allow(missing_debug_implementations)]
 pub struct Inject<B: Batch, F>
 where

@@ -1,3 +1,4 @@
+use crate::dtls::DTls;
 use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
 use crate::kvs::GdpName;
@@ -33,6 +34,8 @@ pub fn create_rib_request(
     message.set_src_port(RIB_PORT);
     message.set_dst_port(RIB_PORT);
 
+    let message = message.push::<DTls<Ipv4>>()?;
+
     let mut message = message.push::<Gdp<Ipv4>>()?;
 
     message.set_action(GdpAction::RibGet);
@@ -53,7 +56,8 @@ pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store) -> Result<()> {
 }
 
 pub fn handle_rib_query(packet: &Gdp<Ipv4>, _store: Store) -> Result<Gdp<Ipv4>> {
-    let udp = packet.envelope();
+    let dtls = packet.envelope();
+    let udp = dtls.envelope();
     let ipv4 = udp.envelope();
     let ethernet = ipv4.envelope();
 
@@ -69,6 +73,8 @@ pub fn handle_rib_query(packet: &Gdp<Ipv4>, _store: Store) -> Result<Gdp<Ipv4>> 
     let mut out = out.push::<Udp<Ipv4>>()?;
     out.set_src_port(udp.dst_port());
     out.set_dst_port(udp.src_port());
+
+    let out = out.push::<DTls<Ipv4>>()?;
 
     let mut out = out.push::<Gdp<Ipv4>>()?;
     out.set_action(GdpAction::RibReply);
