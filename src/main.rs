@@ -29,12 +29,14 @@ use crate::rib::handle_rib_reply;
 use anyhow::anyhow;
 use anyhow::Result;
 
-use capsule::batch::{Batch, Pipeline, Poll};
+use capsule::batch::{self, Batch, Pipeline, Poll};
 use capsule::config::load_config;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::Mbuf;
+use capsule::debug;
+use capsule::net::MacAddr;
 use capsule::{PortQueue, Runtime};
 use tracing::Level;
 use tracing_subscriber::fmt;
@@ -95,6 +97,7 @@ fn switch_pipeline(_q: PortQueue, store: Store) -> impl GdpPipeline {
                         forward_gdp(packet, dst)
                     })}
                     false => |group| {
+                        
                         group
                         .map(bounce_gdp)
                         .inject(move |packet| {
@@ -122,6 +125,67 @@ fn rib_pipeline(_q: PortQueue, store: Store) -> impl GdpPipeline {
     };
 }
 
+fn prep_packet(
+    reply: Mbuf,
+    src_mac: MacAddr,
+    src_ip: Ipv4Addr,
+    dst_mac: MacAddr,
+    dst_ip: Ipv4Addr,
+) -> Result<Gdp<Ipv4>> {
+    let mut reply = reply.push::<Ethernet>()?;
+    reply.set_src(src_mac);
+    reply.set_dst(dst_mac);
+
+    let mut reply = reply.push::<Ipv4>()?;
+    reply.set_src(src_ip);
+    reply.set_dst(dst_ip);
+
+    let mut reply = reply.push::<Udp<Ipv4>>()?;
+    reply.set_src_port(27182);
+    reply.set_dst_port(27182);
+
+    let mut reply = reply.push::<Gdp<Ipv4>>()?;
+
+    let message = "Initial server outgoing!".as_bytes();
+
+    let offset = reply.payload_offset();
+    reply.mbuf_mut().extend(offset, message.len())?;
+    reply.mbuf_mut().write_data_slice(offset, &message)?;
+
+    reply.reconcile_all();
+
+    debug!(?reply);
+    let envelope = reply.envelope();
+    debug!(?envelope);
+    let envelope = envelope.envelope();
+    debug!(?envelope);
+    let envelope = envelope.envelope();
+    debug!(?envelope);
+
+    // let mut reply = reply.deparse();
+    // let reply = encrypt_gdp(reply)?;
+    
+    Ok(reply)
+}
+
+fn install_gdp_pipeline_with_outgoing<T: GdpPipeline>(q: PortQueue, gdp_pipeline: T) -> impl Pipeline {
+    let src_mac = q.mac_addr();
+    batch::poll_fn(|| Mbuf::alloc_bulk(1).unwrap())
+        .map(move |packet| {
+            prep_packet(
+                packet,
+                src_mac,
+                Ipv4Addr::new(10, 100, 1, 11),
+                MacAddr::new(0x0a, 0x00, 0x27, 0x00, 0x00, 0x02),
+                Ipv4Addr::new(10, 100, 1, 12),
+            )
+        })
+        .send(q.clone())
+        .run_once();
+
+    install_gdp_pipeline(q, gdp_pipeline)
+}
+
 fn install_gdp_pipeline<T: GdpPipeline>(q: PortQueue, gdp_pipeline: T) -> impl Pipeline {
     Poll::new(q.clone())
         .map(|packet| {
@@ -130,14 +194,14 @@ fn install_gdp_pipeline<T: GdpPipeline>(q: PortQueue, gdp_pipeline: T) -> impl P
                 .parse::<Ipv4>()?
                 .parse::<Udp<Ipv4>>()?)
         })
-        .map(decrypt_gdp)
+        // .map(decrypt_gdp)
         .map(|packet| Ok(packet.parse::<Gdp<Ipv4>>()?))
         .group_by(
             |packet| packet.action().unwrap_or(GdpAction::Noop),
             gdp_pipeline,
         )
         .map(|packet| Ok(packet.deparse()))
-        .map(encrypt_gdp)
+        // .map(encrypt_gdp)
         .send(q)
 }
 
@@ -151,13 +215,17 @@ fn main() -> Result<()> {
 
     let store1 = Store::new();
     let store2 = Store::new();
+    let store3 = Store::new();
 
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| {
-            install_gdp_pipeline(q.clone(), switch_pipeline(q.clone(), store1))
+            install_gdp_pipeline(q.clone(), rib_pipeline(q.clone(), store1))
         })?
         .add_pipeline_to_port("eth2", move |q| {
-            install_gdp_pipeline(q.clone(), rib_pipeline(q.clone(), store2))
+            install_gdp_pipeline_with_outgoing(q.clone(), switch_pipeline(q.clone(), store2))
+        })?
+        .add_pipeline_to_port("eth3", move |q| {
+            install_gdp_pipeline(q.clone(), switch_pipeline(q.clone(), store3))
         })?
         .execute()
 }

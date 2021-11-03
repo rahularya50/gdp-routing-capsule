@@ -45,6 +45,7 @@ impl TryFrom<u8> for GdpAction {
     }
 }
 
+#[derive(Debug)]
 pub struct Gdp<T: IpPacket> {
     envelope: Udp<T>,
     header: NonNull<GdpHeader>,

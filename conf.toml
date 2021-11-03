@@ -20,3 +20,10 @@ duration = 50
     rxd = 512
     txd = 512
 
+[[ports]]
+    name = "eth3"
+    device = "0000:00:0a.0"
+    cores = [0]
+    rxd = 512
+    txd = 512
+
