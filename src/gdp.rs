@@ -1,9 +1,9 @@
 use crate::kvs::GdpName;
+use crate::DTls;
 
 use anyhow::{anyhow, Result};
 use capsule::packets::ip::IpPacket;
 use capsule::packets::types::u16be;
-use capsule::packets::Udp;
 use capsule::packets::{Internal, Packet};
 use capsule::{ensure, SizeOf};
 use std::convert::TryFrom;
@@ -46,7 +46,7 @@ impl TryFrom<u8> for GdpAction {
 }
 
 pub struct Gdp<T: IpPacket> {
-    envelope: Udp<T>,
+    envelope: DTls<T>,
     header: NonNull<GdpHeader>,
     offset: usize,
 }
@@ -124,7 +124,7 @@ impl<T: IpPacket> Gdp<T> {
 }
 
 impl<T: IpPacket> Packet for Gdp<T> {
-    type Envelope = Udp<T>;
+    type Envelope = DTls<T>;
 
     #[inline]
     fn envelope(&self) -> &Self::Envelope {

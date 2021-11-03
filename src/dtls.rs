@@ -2,48 +2,157 @@ use crate::Ipv4;
 use aes_gcm::aead::{Aead, NewAead};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use anyhow::{anyhow, Result};
+use capsule::packets::ip::IpPacket;
+use capsule::SizeOf;
+use rand::Rng;
+use std::ptr::NonNull;
 
-use capsule::packets::Packet;
-use capsule::packets::Udp;
+use capsule::packets::{Internal, Packet, Udp};
 
-pub fn decrypt_gdp(mut udp_packet: Udp<Ipv4>) -> Result<Udp<Ipv4>> {
+pub struct DTls<T: IpPacket> {
+    envelope: Udp<T>,
+    header: NonNull<DTlsHeader>,
+    offset: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, SizeOf)]
+#[repr(C)]
+struct DTlsHeader {
+    nonce: [u8; 12], // 96-bit nonce used to decrypt the payload
+}
+
+impl<T: IpPacket> DTls<T> {
+    #[inline]
+    fn header(&self) -> &DTlsHeader {
+        unsafe { self.header.as_ref() }
+    }
+
+    #[inline]
+    fn header_mut(&mut self) -> &mut DTlsHeader {
+        unsafe { self.header.as_mut() }
+    }
+
+    #[inline]
+    pub fn nonce(&self) -> [u8; 12] {
+        self.header().nonce
+    }
+
+    #[inline]
+    pub fn set_nonce(&mut self, nonce: [u8; 12]) {
+        self.header_mut().nonce = nonce;
+    }
+}
+
+impl<T: IpPacket> Packet for DTls<T> {
+    type Envelope = Udp<T>;
+
+    #[inline]
+    fn envelope(&self) -> &Self::Envelope {
+        &self.envelope
+    }
+
+    #[inline]
+    fn envelope_mut(&mut self) -> &mut Self::Envelope {
+        &mut self.envelope
+    }
+
+    #[inline]
+    fn offset(&self) -> usize {
+        self.offset
+    }
+
+    #[inline]
+    fn header_len(&self) -> usize {
+        DTlsHeader::size_of()
+    }
+
+    #[inline]
+    unsafe fn clone(&self, internal: Internal) -> Self {
+        DTls {
+            envelope: self.envelope.clone(internal),
+            header: self.header,
+            offset: self.offset,
+        }
+    }
+
+    #[inline]
+    fn try_parse(envelope: Self::Envelope, _internal: Internal) -> Result<Self> {
+        let mbuf = envelope.mbuf();
+        let offset = envelope.payload_offset();
+        let header = mbuf.read_data(offset)?;
+
+        let out = DTls {
+            envelope,
+            header,
+            offset,
+        };
+
+        Ok(out)
+    }
+
+    #[inline]
+    fn try_push(mut envelope: Self::Envelope, _internal: Internal) -> Result<Self> {
+        let offset = envelope.payload_offset();
+        let mbuf = envelope.mbuf_mut();
+
+        mbuf.extend(offset, DTlsHeader::size_of())?;
+        let header = mbuf.write_data(offset, &DTlsHeader::default())?;
+
+        Ok(DTls {
+            envelope,
+            header,
+            offset,
+        })
+    }
+
+    #[inline]
+    fn deparse(self) -> Self::Envelope {
+        self.envelope
+    }
+}
+
+pub fn decrypt_gdp(mut dtls_packet: DTls<Ipv4>) -> Result<DTls<Ipv4>> {
     let key = Key::from_slice(b"an example very very secret key.");
     let cipher = Aes256Gcm::new(key);
 
-    let nonce = Nonce::from_slice(b"unique nonce"); // 96-bits; unique per message
+    let raw_nonce = dtls_packet.nonce();
+    let nonce = Nonce::from_slice(&raw_nonce); // 96-bits; unique per message
 
     // decrypt the packet
-    let data_slice = udp_packet.mbuf().read_data_slice(
-        udp_packet.header_len(),
-        udp_packet.len() - udp_packet.header_len(),
+    let data_slice = dtls_packet.mbuf().read_data_slice(
+        dtls_packet.header_len(),
+        dtls_packet.len() - dtls_packet.header_len(),
     )?;
     let data_slice_ref = unsafe { data_slice.as_ref() };
 
-    let decrypted = cipher.decrypt(nonce, data_slice_ref).expect("failed!");
+    let decrypted = cipher
+        .decrypt(nonce, data_slice_ref)
+        .map_err(|_| anyhow!("decrypt failed"))?;
 
     // rewrite the mbuf with the decrypted packlet
-    let header_length = udp_packet.header_len();
-    let total_length = udp_packet.len();
+    let header_length = dtls_packet.header_len();
+    let total_length = dtls_packet.len();
     let length_delta = decrypted.len() - (total_length - header_length);
     if length_delta > 0 {
-        udp_packet.mbuf_mut().extend(total_length, length_delta)?;
+        dtls_packet.mbuf_mut().extend(total_length, length_delta)?;
     }
-    udp_packet
+    dtls_packet
         .mbuf_mut()
         .write_data_slice(header_length, &decrypted)?;
-    Ok(udp_packet)
+    Ok(dtls_packet)
 }
 
-pub fn encrypt_gdp(mut udp_packet: Udp<Ipv4>) -> Result<Udp<Ipv4>> {
+pub fn encrypt_gdp(mut dtls_packet: DTls<Ipv4>) -> Result<DTls<Ipv4>> {
     let key = Key::from_slice(b"an example very very secret key.");
     let cipher = Aes256Gcm::new(key);
 
-    let nonce = Nonce::from_slice(b"unique nonce"); // 96-bits; unique per message
+    let nonce = rand::thread_rng().gen::<[u8; 12]>(); // 96-bits; unique per message
+    let nonce = Nonce::from_slice(&nonce);
 
     // encrypt the packet
-    let data_slice = udp_packet.mbuf().read_data_slice(
-        udp_packet.header_len(),
-        udp_packet.len() - udp_packet.header_len(),
+    let data_slice = dtls_packet.mbuf().read_data_slice(
+        dtls_packet.header_len(),
+        dtls_packet.len() - dtls_packet.header_len(),
     )?;
     let data_slice_ref = unsafe { data_slice.as_ref() };
 
@@ -52,14 +161,14 @@ pub fn encrypt_gdp(mut udp_packet: Udp<Ipv4>) -> Result<Udp<Ipv4>> {
         .map_err(|_| anyhow!("encrypt failed"))?;
 
     // rewrite the mbuf with the decrypted packlet
-    let header_length = udp_packet.header_len();
-    let total_length = udp_packet.len();
+    let header_length = dtls_packet.header_len();
+    let total_length = dtls_packet.len();
     let length_delta = encrypted.len() - (total_length - header_length);
     if length_delta > 0 {
-        udp_packet.mbuf_mut().extend(total_length, length_delta)?;
+        dtls_packet.mbuf_mut().extend(total_length, length_delta)?;
     }
-    udp_packet
+    dtls_packet
         .mbuf_mut()
         .write_data_slice(header_length, &encrypted)?;
-    Ok(udp_packet)
+    Ok(dtls_packet)
 }
