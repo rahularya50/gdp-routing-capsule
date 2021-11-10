@@ -2,7 +2,6 @@ use crate::inject::Inject;
 use anyhow::Result;
 use capsule::batch::Batch;
 
-
 pub trait GdpBatch: Batch {
     fn inject<F>(self, f: F) -> Inject<Self, F>
     where
