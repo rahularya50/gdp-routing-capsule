@@ -2,9 +2,9 @@ use crate::Ipv4;
 use aes_gcm::aead::{Aead, NewAead};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use anyhow::{anyhow, Result};
+use capsule::debug;
 use capsule::packets::ip::IpPacket;
 use capsule::SizeOf;
-use capsule::debug;
 use rand::Rng;
 use std::ptr::NonNull;
 
@@ -121,24 +121,22 @@ pub fn decrypt_gdp(mut dtls_packet: DTls<Ipv4>) -> Result<DTls<Ipv4>> {
     let nonce = Nonce::from_slice(&raw_nonce); // 96-bits; unique per message
 
     // decrypt the packet
-    let data_slice = dtls_packet.mbuf().read_data_slice(
-        dtls_packet.payload_offset(),
-        dtls_packet.payload_len(),
-    )?;
+    let data_slice = dtls_packet
+        .mbuf()
+        .read_data_slice(dtls_packet.payload_offset(), dtls_packet.payload_len())?;
     let data_slice_ref = unsafe { data_slice.as_ref() };
 
-    let decrypted = cipher
-        .decrypt(nonce, data_slice_ref)
-        .map_err(|_| {
-            debug!("decrypt failed");
-            anyhow!("decrypt failed")
-        })?;
-
+    let decrypted = cipher.decrypt(nonce, data_slice_ref).map_err(|_| {
+        debug!("decrypt failed");
+        anyhow!("decrypt failed")
+    })?;
 
     // AES generally adds padding. To prevent buffer size creep we must truncate.
     let payload_offset = dtls_packet.payload_offset();
     let decrypted_len = decrypted.len();
-    dtls_packet.mbuf_mut().truncate(payload_offset + decrypted_len)?;
+    dtls_packet
+        .mbuf_mut()
+        .truncate(payload_offset + decrypted_len)?;
 
     let write_offset = dtls_packet.payload_offset();
     dtls_packet
@@ -156,18 +154,15 @@ pub fn encrypt_gdp(mut dtls_packet: DTls<Ipv4>) -> Result<DTls<Ipv4>> {
     let nonce = Nonce::from_slice(&nonce);
 
     // encrypt the packet
-    let data_slice = dtls_packet.mbuf().read_data_slice(
-        dtls_packet.payload_offset(),
-        dtls_packet.payload_len(),
-    )?;
+    let data_slice = dtls_packet
+        .mbuf()
+        .read_data_slice(dtls_packet.payload_offset(), dtls_packet.payload_len())?;
     let data_slice_ref = unsafe { data_slice.as_ref() };
 
-    let encrypted = cipher
-        .encrypt(nonce, data_slice_ref)
-        .map_err(|_| {
-            debug!("encrypt failed");
-            anyhow!("encrypt failed")
-        })?;
+    let encrypted = cipher.encrypt(nonce, data_slice_ref).map_err(|_| {
+        debug!("encrypt failed");
+        anyhow!("encrypt failed")
+    })?;
 
     // rewrite the mbuf with the encrypted packlet
     // AES usually adds a few bytes of padding
@@ -183,5 +178,3 @@ pub fn encrypt_gdp(mut dtls_packet: DTls<Ipv4>) -> Result<DTls<Ipv4>> {
         .write_data_slice(write_offset, &encrypted)?;
     Ok(dtls_packet)
 }
-
-

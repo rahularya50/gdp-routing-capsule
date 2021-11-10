@@ -32,12 +32,12 @@ use anyhow::Result;
 
 use capsule::batch::{self, Batch, Pipeline, Poll};
 use capsule::config::load_config;
+use capsule::debug;
+use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::Mbuf;
-use capsule::debug;
-use capsule::net::MacAddr;
 use capsule::{PortQueue, Runtime};
 use tracing::Level;
 use tracing_subscriber::fmt;
@@ -99,7 +99,7 @@ fn switch_pipeline(_q: PortQueue, store: Store) -> impl GdpPipeline {
                         forward_gdp(packet, dst)
                     })}
                     false => |group| {
-                        
+
                         group
                         .map(bounce_gdp)
                         .inject(move |packet| {
@@ -168,11 +168,15 @@ fn prep_packet(
 
     let mut reply = reply.deparse();
     let reply = encrypt_gdp(reply)?;
-    
+
     Ok(reply)
 }
 
-fn install_gdp_pipeline_with_outgoing<'a, T: 'a + GdpPipeline>(q: PortQueue, gdp_pipeline: T, nic_name: &'a str) -> impl Pipeline + '_  + 'a {
+fn install_gdp_pipeline_with_outgoing<'a, T: 'a + GdpPipeline>(
+    q: PortQueue,
+    gdp_pipeline: T,
+    nic_name: &'a str,
+) -> impl Pipeline + '_ + 'a {
     let src_mac = q.mac_addr();
     batch::poll_fn(|| Mbuf::alloc_bulk(1).unwrap())
         .map(move |packet| {
@@ -185,7 +189,10 @@ fn install_gdp_pipeline_with_outgoing<'a, T: 'a + GdpPipeline>(q: PortQueue, gdp
             )
         })
         .for_each(move |packet| {
-            println!("Sending out one-shot packet from NIC {:?}: {:?}", nic_name, packet);
+            println!(
+                "Sending out one-shot packet from NIC {:?}: {:?}",
+                nic_name, packet
+            );
             Ok(())
         })
         .send(q.clone())
@@ -194,7 +201,11 @@ fn install_gdp_pipeline_with_outgoing<'a, T: 'a + GdpPipeline>(q: PortQueue, gdp
     install_gdp_pipeline(q, gdp_pipeline, nic_name)
 }
 
-fn install_gdp_pipeline<T: GdpPipeline>(q: PortQueue, gdp_pipeline: T, nic_name: &str) -> impl Pipeline + '_ {
+fn install_gdp_pipeline<T: GdpPipeline>(
+    q: PortQueue,
+    gdp_pipeline: T,
+    nic_name: &str,
+) -> impl Pipeline + '_ {
     let nic_name_copy = nic_name.clone();
     Poll::new(q.clone())
         .map(|packet| {
