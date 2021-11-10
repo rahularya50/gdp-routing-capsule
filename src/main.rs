@@ -168,7 +168,7 @@ fn prep_packet(
     Ok(reply)
 }
 
-fn install_gdp_pipeline_with_outgoing<T: GdpPipeline>(q: PortQueue, gdp_pipeline: T) -> impl Pipeline {
+fn install_gdp_pipeline_with_outgoing<'a, T: 'a + GdpPipeline>(q: PortQueue, gdp_pipeline: T, nic_name: &'a str) -> impl Pipeline + '_  + 'a {
     let src_mac = q.mac_addr();
     batch::poll_fn(|| Mbuf::alloc_bulk(1).unwrap())
         .map(move |packet| {
@@ -176,17 +176,22 @@ fn install_gdp_pipeline_with_outgoing<T: GdpPipeline>(q: PortQueue, gdp_pipeline
                 packet,
                 src_mac,
                 Ipv4Addr::new(10, 100, 1, 11),
-                MacAddr::new(0x0a, 0x00, 0x27, 0x00, 0x00, 0x02),
+                MacAddr::new(0x02, 0x00, 0x00, 0xff, 0xff, 0x02),
                 Ipv4Addr::new(10, 100, 1, 12),
             )
+        })
+        .for_each(move |packet| {
+            println!("Sending out one-shot packet from NIC {:?}: {:?}", nic_name, packet);
+            Ok(())
         })
         .send(q.clone())
         .run_once();
 
-    install_gdp_pipeline(q, gdp_pipeline)
+    install_gdp_pipeline(q, gdp_pipeline, nic_name)
 }
 
-fn install_gdp_pipeline<T: GdpPipeline>(q: PortQueue, gdp_pipeline: T) -> impl Pipeline {
+fn install_gdp_pipeline<T: GdpPipeline>(q: PortQueue, gdp_pipeline: T, nic_name: &str) -> impl Pipeline + '_ {
+    let nic_name_copy = nic_name.clone();
     Poll::new(q.clone())
         .map(|packet| {
             Ok(packet
@@ -196,11 +201,19 @@ fn install_gdp_pipeline<T: GdpPipeline>(q: PortQueue, gdp_pipeline: T) -> impl P
         })
         // .map(decrypt_gdp)
         .map(|packet| Ok(packet.parse::<Gdp<Ipv4>>()?))
+        .for_each(move |packet| {
+            println!("Parsed gdp packet in NIC {:?}: {:?}", nic_name_copy, packet);
+            Ok(())
+        })
         .group_by(
             |packet| packet.action().unwrap_or(GdpAction::Noop),
             gdp_pipeline,
         )
         .map(|packet| Ok(packet.deparse()))
+        .for_each(move |packet| {
+            println!("Sent gdp packet in NIC {:?}: {:?}", nic_name_copy, packet);
+            Ok(())
+        })
         // .map(encrypt_gdp)
         .send(q)
 }
@@ -217,15 +230,19 @@ fn main() -> Result<()> {
     let store2 = Store::new();
     let store3 = Store::new();
 
+    let name1 = "nic1";
+    let name2 = "nic2";
+    let name3 = "nic3";
+
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| {
-            install_gdp_pipeline(q.clone(), rib_pipeline(q.clone(), store1))
+            install_gdp_pipeline(q.clone(), rib_pipeline(q.clone(), store1), name1)
         })?
         .add_pipeline_to_port("eth2", move |q| {
-            install_gdp_pipeline_with_outgoing(q.clone(), switch_pipeline(q.clone(), store2))
+            install_gdp_pipeline_with_outgoing(q.clone(), switch_pipeline(q.clone(), store2), name2)
         })?
         .add_pipeline_to_port("eth3", move |q| {
-            install_gdp_pipeline(q.clone(), switch_pipeline(q.clone(), store3))
+            install_gdp_pipeline(q.clone(), switch_pipeline(q.clone(), store3), name3)
         })?
         .execute()
 }
