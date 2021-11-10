@@ -132,7 +132,7 @@ fn prep_packet(
     src_ip: Ipv4Addr,
     dst_mac: MacAddr,
     dst_ip: Ipv4Addr,
-) -> Result<Gdp<Ipv4>> {
+) -> Result<DTls<Ipv4>> {
     let mut reply = reply.push::<Ethernet>()?;
     reply.set_src(src_mac);
     reply.set_dst(dst_mac);
@@ -145,6 +145,8 @@ fn prep_packet(
     reply.set_src_port(27182);
     reply.set_dst_port(27182);
 
+    let mut reply = reply.push::<DTls<Ipv4>>()?;
+
     let mut reply = reply.push::<Gdp<Ipv4>>()?;
 
     let message = "Initial server outgoing!".as_bytes();
@@ -155,16 +157,16 @@ fn prep_packet(
 
     reply.reconcile_all();
 
-    debug!(?reply);
+    // debug!(?reply);
     let envelope = reply.envelope();
-    debug!(?envelope);
+    // debug!(?envelope);
     let envelope = envelope.envelope();
-    debug!(?envelope);
+    // debug!(?envelope);
     let envelope = envelope.envelope();
-    debug!(?envelope);
+    // debug!(?envelope);
 
-    // let mut reply = reply.deparse();
-    // let reply = encrypt_gdp(reply)?;
+    let mut reply = reply.deparse();
+    let reply = encrypt_gdp(reply)?;
     
     Ok(reply)
 }
@@ -201,7 +203,7 @@ fn install_gdp_pipeline<T: GdpPipeline>(q: PortQueue, gdp_pipeline: T, nic_name:
                 .parse::<Udp<Ipv4>>()?
                 .parse::<DTls<Ipv4>>()?)
         })
-        // .map(decrypt_gdp)
+        .map(decrypt_gdp)
         .map(|packet| Ok(packet.parse::<Gdp<Ipv4>>()?))
         .for_each(move |packet| {
             println!("Parsed gdp packet in NIC {:?}: {:?}", nic_name_copy, packet);
@@ -216,7 +218,7 @@ fn install_gdp_pipeline<T: GdpPipeline>(q: PortQueue, gdp_pipeline: T, nic_name:
             println!("Sent gdp packet in NIC {:?}: {:?}", nic_name_copy, packet);
             Ok(())
         })
-        // .map(encrypt_gdp)
+        .map(encrypt_gdp)
         .send(q)
 }
 
@@ -232,9 +234,9 @@ fn main() -> Result<()> {
     let store2 = Store::new();
     let store3 = Store::new();
 
-    let name1 = "nic1";
-    let name2 = "nic2";
-    let name3 = "nic3";
+    let name1 = "rib1";
+    let name2 = "sw1";
+    let name3 = "sw2";
 
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| {
