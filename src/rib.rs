@@ -3,12 +3,22 @@ use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
 use crate::kvs::GdpName;
 use crate::kvs::Store;
+use anyhow::anyhow;
 use anyhow::Result;
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::Mbuf;
+use signatory::ed25519::Signature;
+use signatory::ed25519::SigningKey;
+use signatory::ed25519::VerifyingKey;
+use signatory::ed25519::ALGORITHM_ID;
+use signatory::pkcs8::FromPrivateKey;
+use signatory::pkcs8::PrivateKeyInfo;
+use signatory::signature::Signer;
+use signatory::signature::Verifier;
+use signatory::GeneratePkcs8;
 use std::net::Ipv4Addr;
 
 // static RIB_MAC: MacAddr = MacAddr::new(0x02, 0x00, 0x00, 0xFF, 0xFF, 0x00);
@@ -101,3 +111,21 @@ pub fn handle_rib_query(packet: &Gdp<Ipv4>, _store: Store) -> Result<Gdp<Ipv4>> 
 //         .send(q.clone())
 //         .run_once();
 // }
+
+fn gen_signing_key() -> Result<SigningKey> {
+    SigningKey::from_pkcs8_private_key_info(PrivateKeyInfo::new(ALGORITHM_ID, &[0u8; 32]))
+        .map_err(|_| anyhow!("test"))
+}
+
+pub fn gen_verifying_key() -> Result<VerifyingKey> {
+    Ok(gen_signing_key()?.verifying_key())
+}
+
+pub fn test_signatures<'a>(msg: &'a [u8]) -> Result<&'a [u8]> {
+    let msg = b"Hello, world!";
+    let signature = gen_signing_key()?.sign(msg);
+    let encoded_signature = signature.to_bytes();
+    let decoded_signature = Signature::new(encoded_signature);
+    gen_verifying_key()?.verify(msg, &decoded_signature)?;
+    Ok(msg)
+}

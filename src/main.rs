@@ -26,6 +26,7 @@ use crate::pipeline::GdpPipeline;
 use crate::rib::create_rib_request;
 use crate::rib::handle_rib_query;
 use crate::rib::handle_rib_reply;
+use crate::rib::test_signatures;
 use anyhow::anyhow;
 use anyhow::Result;
 
@@ -223,6 +224,8 @@ fn install_gdp_pipeline<T: GdpPipeline>(q: PortQueue, gdp_pipeline: T, nic_name:
 }
 
 fn main() -> Result<()> {
+    test_signatures(b"go bears").unwrap();
+
     let subscriber = fmt::Subscriber::builder()
         .with_max_level(Level::DEBUG)
         .finish();
