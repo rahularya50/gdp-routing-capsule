@@ -175,6 +175,7 @@ fn prep_packet(
 fn install_gdp_pipeline_with_outgoing<'a, T: 'a + GdpPipeline>(
     q: PortQueue,
     gdp_pipeline: T,
+    store: Store,
     nic_name: &'a str,
 ) -> impl Pipeline + '_ + 'a {
     let src_mac = q.mac_addr();
@@ -198,12 +199,13 @@ fn install_gdp_pipeline_with_outgoing<'a, T: 'a + GdpPipeline>(
         .send(q.clone())
         .run_once();
 
-    install_gdp_pipeline(q, gdp_pipeline, nic_name)
+    install_gdp_pipeline(q, gdp_pipeline, store, nic_name)
 }
 
 fn install_gdp_pipeline<T: GdpPipeline>(
     q: PortQueue,
     gdp_pipeline: T,
+    store: Store,
     nic_name: &str,
 ) -> impl Pipeline + '_ {
     let nic_name_copy = nic_name.clone();
@@ -218,6 +220,12 @@ fn install_gdp_pipeline<T: GdpPipeline>(
         .map(decrypt_gdp)
         .map(|packet| Ok(packet.parse::<Gdp<Ipv4>>()?))
         .for_each(move |packet| {
+            // Back-cache the route to allow NACK to reflect
+            store.with_mut_contents(|store| {
+                store
+                    .forwarding_table
+                    .insert(packet.src(), packet.envelope().envelope().envelope().src());
+            });
             println!("Parsed gdp packet in NIC {:?}: {:?}", nic_name_copy, packet);
             Ok(())
         })
@@ -254,13 +262,18 @@ fn main() -> Result<()> {
 
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| {
-            install_gdp_pipeline(q.clone(), rib_pipeline(q.clone(), store1), name1)
+            install_gdp_pipeline(q.clone(), rib_pipeline(q.clone(), store1), store1, name1)
         })?
         .add_pipeline_to_port("eth2", move |q| {
-            install_gdp_pipeline_with_outgoing(q.clone(), switch_pipeline(q.clone(), store2), name2)
+            install_gdp_pipeline_with_outgoing(
+                q.clone(),
+                switch_pipeline(q.clone(), store2),
+                store2,
+                name2,
+            )
         })?
         .add_pipeline_to_port("eth3", move |q| {
-            install_gdp_pipeline(q.clone(), switch_pipeline(q.clone(), store3), name3)
+            install_gdp_pipeline(q.clone(), switch_pipeline(q.clone(), store3), store3, name3)
         })?
         .execute()
 }
