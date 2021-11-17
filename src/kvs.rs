@@ -2,10 +2,13 @@ use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::sync::RwLock;
 
+use statistics;
+
 pub type GdpName = u32;
 
 pub struct StoreContents {
     pub forwarding_table: HashMap<GdpName, Ipv4Addr>, // for this switch, this tells us the IP address of the next hop for a given target
+    pub statistics: PktStatistics,
 }
 
 #[derive(Copy, Clone)]
