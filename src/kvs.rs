@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::sync::RwLock;
 
-use statistics;
+use crate::statistics::GdpStatistics;
 
 pub type GdpName = u32;
 
 pub struct StoreContents {
     pub forwarding_table: HashMap<GdpName, Ipv4Addr>, // for this switch, this tells us the IP address of the next hop for a given target
-    pub statistics: PktStatistics,
+    pub statistics: GdpStatistics,
 }
 
 #[derive(Copy, Clone)]
@@ -18,6 +18,7 @@ impl Store {
     pub fn new() -> Self {
         Store(Box::leak(Box::new(RwLock::new(StoreContents {
             forwarding_table: HashMap::new(),
+            statistics: GdpStatistics::new(),
         }))))
     }
 

@@ -1,37 +1,45 @@
-use crate::kvs::GdpName;
-use crate::DTls;
+use chrono;
 use hdrhistogram::Histogram;
 
-use anyhow::{anyhow, Result};
-use capsule::packets::ip::IpPacket;
-use capsule::packets::types::u16be;
-use capsule::packets::{Internal, Packet};
-use capsule::{ensure, SizeOf};
-use std::convert::TryFrom;
-use std::convert::TryInto;
-use std::ptr::NonNull;
-use strum_macros::EnumIter;
-
-#[derive(Clone, Copy, Debug, Default, SizeOf)]
-#[repr(C)]
-struct GdpStatistics {
-    start_time: Instant,
-    blocks: Vec<GdpStatisticBlock>, // block-level statistics
-    globals: GdpStatisticGlobal,    // global statistics
-    block_width: u32,               // time in us
+pub struct GdpStatistics {
+    pub start_time: i64,
+    pub blocks: Vec<GdpStatisticBlock>, // block-level statistics
+    pub globals: GdpStatisticGlobal,    // global statistics
+    pub block_width: u32,               // time in us
 }
 
-#[derive(Clone, Copy, Debug, Default, SizeOf)]
-#[repr(C)]
-struct GdpStatisticGlobal {
-    packet_size_hist: Histogram,
-    latency_hist: Histogram,
+pub struct GdpStatisticGlobal {
+    packet_size_hist: Histogram<u64>,
+    latency_hist: Histogram<u64>,
 }
 
-#[derive(Clone, Copy, Debug, Default, SizeOf)]
-#[repr(C)]
-struct GdpStatisticBlock {
-    start_time: Instant,
-    packet_count: u32,
+pub struct GdpStatisticBlock {
+    packet_count: u64,
     bytes_count: u64,
+}
+
+// something like this
+impl GdpStatistics {
+    pub fn new() -> Self {
+        GdpStatistics {
+            blocks: Vec::<GdpStatisticBlock>::new(),
+            globals: GdpStatisticGlobal {
+                packet_size_hist: Histogram::<u64>::new(5).unwrap(),
+                latency_hist: Histogram::<u64>::new(5).unwrap(),
+            },
+            start_time: chrono::offset::Utc::now().timestamp_millis(),
+            block_width: 1, // default 1ms
+        }
+    }
+
+    pub fn record_packet(&mut self, _size: u64, _latency: u64) {
+        // resize if necessary, but this should be rare most of the time
+        // let current_time = chrono::offset::Utc::now().timestamp_millis();
+        // if current_time - start_time > self.blocks.size() * self.block_width {
+        //     self.blocks.resize_with(
+        //         (current_time - start_time) / self.block_width,
+        //         Default::default,
+        //     );
+        // }
+    }
 }

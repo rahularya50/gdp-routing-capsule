@@ -32,7 +32,7 @@ use anyhow::Result;
 
 use capsule::batch::{self, Batch, Pipeline, Poll};
 use capsule::config::load_config;
-use capsule::debug;
+
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
@@ -49,6 +49,7 @@ mod inject;
 mod kvs;
 mod pipeline;
 mod rib;
+mod statistics;
 
 fn find_destination(gdp: &Gdp<Ipv4>, store: Store) -> Option<Ipv4Addr> {
     store.with_contents(|store| store.forwarding_table.get(&gdp.dst()).cloned())
@@ -146,7 +147,7 @@ fn prep_packet(
     reply.set_src_port(27182);
     reply.set_dst_port(27182);
 
-    let mut reply = reply.push::<DTls<Ipv4>>()?;
+    let reply = reply.push::<DTls<Ipv4>>()?;
 
     let mut reply = reply.push::<Gdp<Ipv4>>()?;
 
@@ -163,10 +164,10 @@ fn prep_packet(
     // debug!(?envelope);
     let envelope = envelope.envelope();
     // debug!(?envelope);
-    let envelope = envelope.envelope();
+    let _envelope = envelope.envelope();
     // debug!(?envelope);
 
-    let mut reply = reply.deparse();
+    let reply = reply.deparse();
     let reply = encrypt_gdp(reply)?;
 
     Ok(reply)
