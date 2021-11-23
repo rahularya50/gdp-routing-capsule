@@ -8,7 +8,8 @@ pub type GdpName = u32;
 
 pub struct StoreContents {
     pub forwarding_table: HashMap<GdpName, Ipv4Addr>, // for this switch, this tells us the IP address of the next hop for a given target
-    pub statistics: GdpStatistics,
+    pub in_statistics: GdpStatistics,
+    pub out_statistics: GdpStatistics,
 }
 
 #[derive(Copy, Clone)]
@@ -18,7 +19,8 @@ impl Store {
     pub fn new() -> Self {
         Store(Box::leak(Box::new(RwLock::new(StoreContents {
             forwarding_table: HashMap::new(),
-            statistics: GdpStatistics::new(),
+            in_statistics: GdpStatistics::new(),
+            out_statistics: GdpStatistics::new(),
         }))))
     }
 
