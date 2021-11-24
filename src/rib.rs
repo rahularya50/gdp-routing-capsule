@@ -18,7 +18,7 @@ use signatory::pkcs8::FromPrivateKey;
 use signatory::pkcs8::PrivateKeyInfo;
 use signatory::signature::Signer;
 use signatory::signature::Verifier;
-use signatory::GeneratePkcs8;
+
 use std::net::Ipv4Addr;
 
 // static RIB_MAC: MacAddr = MacAddr::new(0x02, 0x00, 0x00, 0xFF, 0xFF, 0x00);
@@ -121,7 +121,7 @@ pub fn gen_verifying_key() -> Result<VerifyingKey> {
     Ok(gen_signing_key()?.verifying_key())
 }
 
-pub fn test_signatures<'a>(msg: &'a [u8]) -> Result<&'a [u8]> {
+pub fn test_signatures<'a>(_msg: &'a [u8]) -> Result<&'a [u8]> {
     let msg = b"Hello, world!";
     let signature = gen_signing_key()?.sign(msg);
     let encoded_signature = signature.to_bytes();

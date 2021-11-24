@@ -25,3 +25,6 @@ strum = "0.21"
 strum_macros = "0.21"
 rand = "0.8.4"
 signatory = { version = "0.23.1", features = ["ed25519"] }
+hdrhistogram = "6.0"
+chrono = "0.4"
+signal-hook = "0.3.10"

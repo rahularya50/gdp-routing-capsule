@@ -29,10 +29,12 @@ use crate::rib::handle_rib_reply;
 use crate::rib::test_signatures;
 use anyhow::anyhow;
 use anyhow::Result;
+use std::io;
+use std::thread;
 
 use capsule::batch::{self, Batch, Pipeline, Poll};
 use capsule::config::load_config;
-use capsule::debug;
+
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
@@ -42,6 +44,8 @@ use capsule::{PortQueue, Runtime};
 use tracing::Level;
 use tracing_subscriber::fmt;
 
+use std::sync::Arc;
+
 mod dtls;
 mod gdp;
 mod gdpbatch;
@@ -49,6 +53,7 @@ mod inject;
 mod kvs;
 mod pipeline;
 mod rib;
+mod statistics;
 
 fn find_destination(gdp: &Gdp<Ipv4>, store: Store) -> Option<Ipv4Addr> {
     store.with_contents(|store| store.forwarding_table.get(&gdp.dst()).cloned())
@@ -133,7 +138,7 @@ fn prep_packet(
     src_ip: Ipv4Addr,
     dst_mac: MacAddr,
     dst_ip: Ipv4Addr,
-) -> Result<DTls<Ipv4>> {
+) -> Result<Gdp<Ipv4>> {
     let mut reply = reply.push::<Ethernet>()?;
     reply.set_src(src_mac);
     reply.set_dst(dst_mac);
@@ -146,7 +151,7 @@ fn prep_packet(
     reply.set_src_port(27182);
     reply.set_dst_port(27182);
 
-    let mut reply = reply.push::<DTls<Ipv4>>()?;
+    let reply = reply.push::<DTls<Ipv4>>()?;
 
     let mut reply = reply.push::<Gdp<Ipv4>>()?;
 
@@ -163,11 +168,8 @@ fn prep_packet(
     // debug!(?envelope);
     let envelope = envelope.envelope();
     // debug!(?envelope);
-    let envelope = envelope.envelope();
+    let _envelope = envelope.envelope();
     // debug!(?envelope);
-
-    let mut reply = reply.deparse();
-    let reply = encrypt_gdp(reply)?;
 
     Ok(reply)
 }
@@ -194,8 +196,13 @@ fn install_gdp_pipeline_with_outgoing<'a, T: 'a + GdpPipeline>(
                 "Sending out one-shot packet from NIC {:?}: {:?}",
                 nic_name, packet
             );
+            store.with_mut_contents(|store| {
+                store.out_statistics.record_packet(packet);
+            });
             Ok(())
         })
+        .map(|packet| Ok(packet.deparse()))
+        .map(encrypt_gdp)
         .send(q.clone())
         .run_once();
 
@@ -227,17 +234,27 @@ fn install_gdp_pipeline<T: GdpPipeline>(
                     .insert(packet.src(), packet.envelope().envelope().envelope().src());
             });
             println!("Parsed gdp packet in NIC {:?}: {:?}", nic_name_copy, packet);
+
+            // Record incoming packet statistics
+            store.with_mut_contents(|store| {
+                store.in_statistics.record_packet(packet);
+            });
             Ok(())
         })
         .group_by(
             |packet| packet.action().unwrap_or(GdpAction::Noop),
             gdp_pipeline,
         )
-        .map(|packet| Ok(packet.deparse()))
         .for_each(move |packet| {
             println!("Sent gdp packet in NIC {:?}: {:?}", nic_name_copy, packet);
+
+            // Record outgoing packet statistics
+            store.with_mut_contents(|store| {
+                store.out_statistics.record_packet(packet);
+            });
             Ok(())
         })
+        .map(|packet| Ok(packet.deparse()))
         .map(encrypt_gdp)
         .send(q)
 }
@@ -256,9 +273,39 @@ fn main() -> Result<()> {
     let store2 = Store::new();
     let store3 = Store::new();
 
+    // Must use reference-counted pointers so we can share the store
+    // If we want multithreading we"ll need to use atomic RCs.
+    let store2_pipeline_ref = Arc::new(store2);
+    let store2_stats_ref = store2_pipeline_ref.clone();
+    let store3_pipeline_ref = Arc::new(store3);
+    let store3_stats_ref = store3_pipeline_ref.clone();
+
     let name1 = "rib1";
     let name2 = "sw1";
     let name3 = "sw2";
+
+    // Command handling thread
+    thread::spawn(move || loop {
+        let mut buffer = String::new();
+        let _ = io::stdin().read_line(&mut buffer);
+        buffer.pop(); // erase newline
+        println!("Received command {:?}", buffer);
+        if buffer == "dump" {
+            println!("Dumping statistics to file");
+            (*store2_stats_ref).with_mut_contents(|s| {
+                let in_label = "store2_in";
+                let out_label = "store2_out";
+                let _ = s.in_statistics.dump_statistics(in_label);
+                let _ = s.out_statistics.dump_statistics(out_label);
+            });
+            (*store3_stats_ref).with_mut_contents(|s| {
+                let in_label = "store3_in";
+                let out_label = "store3_out";
+                let _ = s.in_statistics.dump_statistics(in_label);
+                let _ = s.out_statistics.dump_statistics(out_label);
+            });
+        }
+    });
 
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| {
@@ -267,13 +314,18 @@ fn main() -> Result<()> {
         .add_pipeline_to_port("eth2", move |q| {
             install_gdp_pipeline_with_outgoing(
                 q.clone(),
-                switch_pipeline(q.clone(), store2),
-                store2,
+                switch_pipeline(q.clone(), *store2_pipeline_ref),
+                *store2_pipeline_ref,
                 name2,
             )
         })?
         .add_pipeline_to_port("eth3", move |q| {
-            install_gdp_pipeline(q.clone(), switch_pipeline(q.clone(), store3), store3, name3)
+            install_gdp_pipeline(
+                q.clone(),
+                switch_pipeline(q.clone(), *store3_pipeline_ref),
+                *store3_pipeline_ref,
+                name3,
+            )
         })?
         .execute()
 }
