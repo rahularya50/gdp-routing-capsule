@@ -99,17 +99,19 @@ fn switch_pipeline(_q: PortQueue, store: Store) -> impl GdpPipeline {
             group.group_by(
                 move |packet| find_destination(packet, store).is_some(),
                 pipeline! {
-                    true => |group| {group.map(move |packet| {
-                        let dst = find_destination(&packet, store).ok_or(anyhow!("can't find the destination"))?;
-                        forward_gdp(packet, dst)
-                    })}
+                    true => |group| {
+                        group.map(move |packet| {
+                            let dst = find_destination(&packet, store).ok_or(anyhow!("can't find the destination"))?;
+                            forward_gdp(packet, dst)
+                        })
+                    }
                     false => |group| {
-
                         group
                         .map(bounce_gdp)
                         .inject(move |packet| {
                             let src_ip = packet.envelope().envelope().envelope().src();
                             let src_mac = packet.envelope().envelope().envelope().envelope().dst();
+                            println!("Querying RIB for destination {:?}", packet.dst());
                             create_rib_request(Mbuf::new()?, packet.dst(), src_mac, src_ip, store)
                         })
                     }
@@ -154,6 +156,8 @@ fn prep_packet(
     let reply = reply.push::<DTls<Ipv4>>()?;
 
     let mut reply = reply.push::<Gdp<Ipv4>>()?;
+    reply.set_action(GdpAction::Forward);
+    reply.set_dst(5);
 
     let message = "Initial server outgoing!".as_bytes();
 
@@ -163,23 +167,10 @@ fn prep_packet(
 
     reply.reconcile_all();
 
-    // debug!(?reply);
-    let envelope = reply.envelope();
-    // debug!(?envelope);
-    let envelope = envelope.envelope();
-    // debug!(?envelope);
-    let _envelope = envelope.envelope();
-    // debug!(?envelope);
-
     Ok(reply)
 }
 
-fn install_gdp_pipeline_with_outgoing<'a, T: 'a + GdpPipeline>(
-    q: PortQueue,
-    gdp_pipeline: T,
-    store: Store,
-    nic_name: &'a str,
-) -> impl Pipeline + '_ + 'a {
+fn send_initial_packet(q: PortQueue, nic_name: &str, store: Store) -> () {
     let src_mac = q.mac_addr();
     batch::poll_fn(|| Mbuf::alloc_bulk(1).unwrap())
         .map(move |packet| {
@@ -203,10 +194,8 @@ fn install_gdp_pipeline_with_outgoing<'a, T: 'a + GdpPipeline>(
         })
         .map(|packet| Ok(packet.deparse()))
         .map(encrypt_gdp)
-        .send(q.clone())
+        .send(q)
         .run_once();
-
-    install_gdp_pipeline(q, gdp_pipeline, store, nic_name)
 }
 
 fn install_gdp_pipeline<T: GdpPipeline>(
@@ -263,7 +252,7 @@ fn main() -> Result<()> {
     test_signatures(b"go bears").unwrap();
 
     let subscriber = fmt::Subscriber::builder()
-        .with_max_level(Level::DEBUG)
+        .with_max_level(Level::WARN)
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
@@ -272,13 +261,6 @@ fn main() -> Result<()> {
     let store1 = Store::new();
     let store2 = Store::new();
     let store3 = Store::new();
-
-    // Must use reference-counted pointers so we can share the store
-    // If we want multithreading we"ll need to use atomic RCs.
-    let store2_pipeline_ref = Arc::new(store2);
-    let store2_stats_ref = store2_pipeline_ref.clone();
-    let store3_pipeline_ref = Arc::new(store3);
-    let store3_stats_ref = store3_pipeline_ref.clone();
 
     let name1 = "rib1";
     let name2 = "sw1";
@@ -292,13 +274,13 @@ fn main() -> Result<()> {
         println!("Received command {:?}", buffer);
         if buffer == "dump" {
             println!("Dumping statistics to file");
-            (*store2_stats_ref).with_mut_contents(|s| {
+            store2.with_mut_contents(|s| {
                 let in_label = "store2_in";
                 let out_label = "store2_out";
                 let _ = s.in_statistics.dump_statistics(in_label);
                 let _ = s.out_statistics.dump_statistics(out_label);
             });
-            (*store3_stats_ref).with_mut_contents(|s| {
+            store3.with_mut_contents(|s| {
                 let in_label = "store3_in";
                 let out_label = "store3_out";
                 let _ = s.in_statistics.dump_statistics(in_label);
@@ -312,20 +294,11 @@ fn main() -> Result<()> {
             install_gdp_pipeline(q.clone(), rib_pipeline(q.clone(), store1), store1, name1)
         })?
         .add_pipeline_to_port("eth2", move |q| {
-            install_gdp_pipeline_with_outgoing(
-                q.clone(),
-                switch_pipeline(q.clone(), *store2_pipeline_ref),
-                *store2_pipeline_ref,
-                name2,
-            )
+            send_initial_packet(q.clone(), name2, store2);
+            install_gdp_pipeline(q.clone(), switch_pipeline(q.clone(), store2), store2, name2)
         })?
         .add_pipeline_to_port("eth3", move |q| {
-            install_gdp_pipeline(
-                q.clone(),
-                switch_pipeline(q.clone(), *store3_pipeline_ref),
-                *store3_pipeline_ref,
-                name3,
-            )
+            install_gdp_pipeline(q.clone(), switch_pipeline(q.clone(), store3), store3, name3)
         })?
         .execute()
 }

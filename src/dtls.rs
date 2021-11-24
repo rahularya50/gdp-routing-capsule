@@ -6,11 +6,11 @@ use capsule::debug;
 use capsule::packets::ip::IpPacket;
 use capsule::SizeOf;
 use rand::Rng;
+use std::fmt;
 use std::ptr::NonNull;
 
 use capsule::packets::{Internal, Packet, Udp};
 
-#[derive(Debug)]
 pub struct DTls<T: IpPacket> {
     envelope: Udp<T>,
     header: NonNull<DTlsHeader>,
@@ -42,6 +42,14 @@ impl<T: IpPacket> DTls<T> {
     #[inline]
     pub fn set_nonce(&mut self, nonce: [u8; 12]) {
         self.header_mut().nonce = nonce;
+    }
+}
+
+impl<T: IpPacket> fmt::Debug for DTls<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("dtls")
+            .field("nonce", &self.nonce())
+            .finish()
     }
 }
 

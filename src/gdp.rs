@@ -8,6 +8,7 @@ use capsule::packets::{Internal, Packet};
 use capsule::{ensure, SizeOf};
 use std::convert::TryFrom;
 use std::convert::TryInto;
+use std::fmt;
 use std::ptr::NonNull;
 use strum_macros::EnumIter;
 
@@ -40,12 +41,13 @@ impl TryFrom<u8> for GdpAction {
             x if x == GdpAction::Put as u8 => Ok(GdpAction::Put),
             x if x == GdpAction::RibGet as u8 => Ok(GdpAction::RibGet),
             x if x == GdpAction::RibReply as u8 => Ok(GdpAction::RibReply),
-            _ => Err(anyhow::Error::msg("Unknown action byte")),
+            x if x == GdpAction::Forward as u8 => Ok(GdpAction::Forward),
+            x if x == GdpAction::Nack as u8 => Ok(GdpAction::Nack),
+            _ => Err(anyhow!("Unknown action byte")),
         }
     }
 }
 
-#[derive(Debug)]
 pub struct Gdp<T: IpPacket> {
     envelope: DTls<T>,
     header: NonNull<GdpHeader>,
@@ -121,6 +123,19 @@ impl<T: IpPacket> Gdp<T> {
     #[inline]
     pub fn set_dst(&mut self, dst: GdpName) {
         self.header_mut().dst = dst;
+    }
+}
+
+impl<T: IpPacket> fmt::Debug for Gdp<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("gdp")
+            .field("ttl", &self.ttl())
+            .field("action", &self.action())
+            .field("src", &self.src())
+            .field("dst", &self.dst())
+            .field("key", &self.key())
+            .field("value", &self.value())
+            .finish()
     }
 }
 
