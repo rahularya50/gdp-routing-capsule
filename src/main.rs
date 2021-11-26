@@ -8,6 +8,7 @@ use crate::rib::create_rib_request;
 use crate::rib::handle_rib_query;
 use crate::rib::handle_rib_reply;
 use crate::rib::test_signatures;
+use crate::rib::Routes;
 use anyhow::anyhow;
 use anyhow::Result;
 use capsule::batch::{self, Batch, Pipeline, Poll};
@@ -19,11 +20,13 @@ use capsule::packets::{Ethernet, Packet};
 use capsule::Mbuf;
 use capsule::{PortQueue, Runtime};
 use clap::{arg_enum, clap_app, value_t};
+use rib::load_routes;
 use std::fs;
 use std::io;
 use std::net::Ipv4Addr;
-
 use std::thread;
+use std::time::Duration;
+use tokio::time::sleep;
 use tracing::Level;
 use tracing_subscriber::fmt;
 
@@ -74,8 +77,8 @@ fn bounce_gdp(mut gdp: Gdp<Ipv4>) -> Result<Gdp<Ipv4>> {
     Ok(gdp)
 }
 
-fn switch_pipeline(_q: PortQueue, store: Store) -> GdpPipeline {
-    return pipeline! {
+fn switch_pipeline(store: Store) -> impl GdpPipeline + Copy {
+    pipeline! {
         GdpAction::Forward => |group| {
             group.group_by(
                 move |packet| find_destination(packet, store).is_some(),
@@ -103,16 +106,17 @@ fn switch_pipeline(_q: PortQueue, store: Store) -> GdpPipeline {
                 .filter(|_| false)
         }
         _ => |group| {group.filter(|_| false)}
-    };
+    }
 }
 
-fn rib_pipeline(_q: PortQueue, store: Store) -> GdpPipeline {
-    return pipeline! {
+fn rib_pipeline() -> Result<impl GdpPipeline + Copy> {
+    let routes: &Routes = Box::leak(Box::new(load_routes("routes.toml")?));
+    Ok(pipeline! {
         GdpAction::RibGet => |group| {
-            group.replace(move |packet| handle_rib_query(packet, store))
+            group.replace(move |packet| handle_rib_query(packet, routes))
         }
         _ => |group| {group.filter(|_| false)}
-    };
+    })
 }
 
 fn prep_packet(
@@ -138,7 +142,7 @@ fn prep_packet(
 
     let mut reply = reply.push::<Gdp<Ipv4>>()?;
     reply.set_action(GdpAction::Forward);
-    reply.set_dst(5);
+    reply.set_dst(1);
 
     let message = "Initial server outgoing!".as_bytes();
 
@@ -179,13 +183,12 @@ fn send_initial_packet(q: PortQueue, nic_name: &str, store: Store) -> () {
         .run_once();
 }
 
-fn install_gdp_pipeline(
+fn install_gdp_pipeline<'a>(
     q: PortQueue,
-    gdp_pipeline: GdpPipeline,
+    gdp_pipeline: impl GdpPipeline,
     store: Store,
-    nic_name: &str,
-) -> impl Pipeline + '_ {
-    let nic_name_copy = nic_name.clone();
+    nic_name: &'a str,
+) -> impl Pipeline + 'a {
     Poll::new(q.clone())
         .map(|packet| {
             Ok(packet
@@ -203,7 +206,7 @@ fn install_gdp_pipeline(
                     .forwarding_table
                     .insert(packet.src(), packet.envelope().envelope().envelope().src());
             });
-            println!("Parsed gdp packet in NIC {:?}: {:?}", nic_name_copy, packet);
+            println!("Parsed gdp packet in NIC {:?}: {:?}", nic_name, packet);
 
             // Record incoming packet statistics
             store.with_mut_contents(|store| {
@@ -216,7 +219,7 @@ fn install_gdp_pipeline(
             gdp_pipeline,
         )
         .for_each(move |packet| {
-            println!("Sent gdp packet in NIC {:?}: {:?}", nic_name_copy, packet);
+            println!("Sent gdp packet in NIC {:?}: {:?}", nic_name, packet);
 
             // Record outgoing packet statistics
             store.with_mut_contents(|store| {
@@ -278,33 +281,42 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
         }
     });
 
+    let pipeline1 = rib_pipeline()?;
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| {
-            install_gdp_pipeline(q.clone(), rib_pipeline(q.clone(), store1), store1, name1)
+            install_gdp_pipeline(q.clone(), pipeline1, store1, name1)
         })?
         .add_pipeline_to_port("eth2", move |q| {
-            send_initial_packet(q.clone(), name2, store2);
-            install_gdp_pipeline(q.clone(), switch_pipeline(q.clone(), store2), store2, name2)
+            // send_initial_packet(q.clone(), name2, store2);
+            // sleep(Duration::from_millis(1000));
+            // send_initial_packet(q.clone(), name2, store2);
+            install_gdp_pipeline(q.clone(), switch_pipeline(store2), store2, name2)
         })?
         .add_pipeline_to_port("eth3", move |q| {
-            install_gdp_pipeline(q.clone(), switch_pipeline(q.clone(), store3), store3, name3)
+            install_gdp_pipeline(q, switch_pipeline(store3), store3, name3)
         })?
         .execute()
 }
 
 fn start_prod_server(config: RuntimeConfig, mode: ProdMode) -> Result<()> {
-    let pipeline = match mode {
-        ProdMode::Router => rib_pipeline,
-        ProdMode::Switch => switch_pipeline,
-    };
-
     let store = Store::new();
 
-    Runtime::build(config)?
-        .add_pipeline_to_port("eth1", move |q| {
-            install_gdp_pipeline(q.clone(), pipeline(q.clone(), store), store, "prod")
-        })?
-        .execute()
+    fn start<T: GdpPipeline + Send + Sync + Copy + 'static>(
+        config: RuntimeConfig,
+        store: Store,
+        pipeline: T,
+    ) -> Result<()> {
+        Runtime::build(config)?
+            .add_pipeline_to_port("eth1", move |q| {
+                install_gdp_pipeline(q, pipeline, store, "prod")
+            })?
+            .execute()
+    }
+
+    match mode {
+        ProdMode::Router => start(config, store, rib_pipeline()?),
+        ProdMode::Switch => start(config, store, switch_pipeline(store)),
+    }
 }
 
 fn main() -> Result<()> {

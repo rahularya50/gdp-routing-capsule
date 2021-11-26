@@ -3,13 +3,13 @@ use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
 use crate::kvs::GdpName;
 use crate::kvs::Store;
-use anyhow::anyhow;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::Mbuf;
+use serde::Deserialize;
 use signatory::ed25519::Signature;
 use signatory::ed25519::SigningKey;
 use signatory::ed25519::VerifyingKey;
@@ -18,7 +18,8 @@ use signatory::pkcs8::FromPrivateKey;
 use signatory::pkcs8::PrivateKeyInfo;
 use signatory::signature::Signer;
 use signatory::signature::Verifier;
-
+use std::collections::HashMap;
+use std::fs;
 use std::net::Ipv4Addr;
 
 // static RIB_MAC: MacAddr = MacAddr::new(0x02, 0x00, 0x00, 0xFF, 0xFF, 0x00);
@@ -65,7 +66,7 @@ pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store) -> Result<()> {
     Ok(())
 }
 
-pub fn handle_rib_query(packet: &Gdp<Ipv4>, _store: Store) -> Result<Gdp<Ipv4>> {
+pub fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes) -> Result<Gdp<Ipv4>> {
     let dtls = packet.envelope();
     let udp = dtls.envelope();
     let ipv4 = udp.envelope();
@@ -89,32 +90,31 @@ pub fn handle_rib_query(packet: &Gdp<Ipv4>, _store: Store) -> Result<Gdp<Ipv4>> 
     let mut out = out.push::<Gdp<Ipv4>>()?;
     out.set_action(GdpAction::RibReply);
     out.set_key(packet.key());
-    out.set_value(10 /* fixme */);
-
+    out.set_value(
+        routes
+            .routes
+            .get(&packet.key().to_string())
+            .ok_or(anyhow!("GDPName not found!"))?
+            .clone()
+            .into(),
+    );
     out.reconcile_all();
     Ok(out)
 }
+#[derive(Deserialize)]
+pub struct Routes {
+    routes: HashMap<String, Ipv4Addr>,
+}
 
-// pub fn send_rib_request(q: &PortQueue) -> () {
-//     let src_mac = q.mac_addr();
-//     batch::poll_fn(|| Mbuf::alloc_bulk(1).unwrap())
-//         .map(|packet| {
-//             prep_packet(
-//                 packet,
-//                 src_mac,
-//                 Ipv4Addr::new(10, 100, 1, 255),
-//                 MacAddr::new(0x0a, 0x00, 0x27, 0x00, 0x00, 0x02),
-//                 Ipv4Addr::new(10, 100, 1, 1),
-//             )
-//         })
-//         .filter(predicate)
-//         .send(q.clone())
-//         .run_once();
-// }
+pub fn load_routes(path: &str) -> Result<Routes> {
+    let content = fs::read_to_string(path)?;
+    Ok(toml::from_str(&content)?)
+}
 
 fn gen_signing_key() -> Result<SigningKey> {
-    SigningKey::from_pkcs8_private_key_info(PrivateKeyInfo::new(ALGORITHM_ID, &[0u8; 32]))
-        .map_err(|_| anyhow!("test"))
+    Ok(SigningKey::from_pkcs8_private_key_info(
+        PrivateKeyInfo::new(ALGORITHM_ID, &[0u8; 32]),
+    )?)
 }
 
 pub fn gen_verifying_key() -> Result<VerifyingKey> {
