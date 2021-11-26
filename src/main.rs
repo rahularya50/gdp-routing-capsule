@@ -1,22 +1,3 @@
-use std::net::Ipv4Addr;
-
-/*
-* Copyright 2019 Comcast Cable Communications Management, LLC
-*
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-* http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*
-* SPDX-License-Identifier: Apache-2.0
-*/
 use crate::dtls::{decrypt_gdp, encrypt_gdp, DTls};
 use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
@@ -29,22 +10,22 @@ use crate::rib::handle_rib_reply;
 use crate::rib::test_signatures;
 use anyhow::anyhow;
 use anyhow::Result;
-use std::io;
-use std::thread;
-
 use capsule::batch::{self, Batch, Pipeline, Poll};
-use capsule::config::load_config;
-
+use capsule::config::RuntimeConfig;
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::Mbuf;
 use capsule::{PortQueue, Runtime};
+use clap::{arg_enum, clap_app, value_t};
+use std::fs;
+use std::io;
+use std::net::Ipv4Addr;
+
+use std::thread;
 use tracing::Level;
 use tracing_subscriber::fmt;
-
-use std::sync::Arc;
 
 mod dtls;
 mod gdp;
@@ -93,7 +74,7 @@ fn bounce_gdp(mut gdp: Gdp<Ipv4>) -> Result<Gdp<Ipv4>> {
     Ok(gdp)
 }
 
-fn switch_pipeline(_q: PortQueue, store: Store) -> impl GdpPipeline {
+fn switch_pipeline(_q: PortQueue, store: Store) -> GdpPipeline {
     return pipeline! {
         GdpAction::Forward => |group| {
             group.group_by(
@@ -125,7 +106,7 @@ fn switch_pipeline(_q: PortQueue, store: Store) -> impl GdpPipeline {
     };
 }
 
-fn rib_pipeline(_q: PortQueue, store: Store) -> impl GdpPipeline {
+fn rib_pipeline(_q: PortQueue, store: Store) -> GdpPipeline {
     return pipeline! {
         GdpAction::RibGet => |group| {
             group.replace(move |packet| handle_rib_query(packet, store))
@@ -198,9 +179,9 @@ fn send_initial_packet(q: PortQueue, nic_name: &str, store: Store) -> () {
         .run_once();
 }
 
-fn install_gdp_pipeline<T: GdpPipeline>(
+fn install_gdp_pipeline(
     q: PortQueue,
-    gdp_pipeline: T,
+    gdp_pipeline: GdpPipeline,
     store: Store,
     nic_name: &str,
 ) -> impl Pipeline + '_ {
@@ -248,16 +229,20 @@ fn install_gdp_pipeline<T: GdpPipeline>(
         .send(q)
 }
 
-fn main() -> Result<()> {
-    test_signatures(b"go bears").unwrap();
+arg_enum! {
+    enum Mode {
+        Dev,
+        Router,
+        Switch,
+    }
+}
 
-    let subscriber = fmt::Subscriber::builder()
-        .with_max_level(Level::WARN)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)?;
+enum ProdMode {
+    Router,
+    Switch,
+}
 
-    let config = load_config()?;
-
+fn start_dev_server(config: RuntimeConfig) -> Result<()> {
     let store1 = Store::new();
     let store2 = Store::new();
     let store3 = Store::new();
@@ -267,25 +252,29 @@ fn main() -> Result<()> {
     let name3 = "sw2";
 
     // Command handling thread
-    thread::spawn(move || loop {
-        let mut buffer = String::new();
-        let _ = io::stdin().read_line(&mut buffer);
-        buffer.pop(); // erase newline
-        println!("Received command {:?}", buffer);
-        if buffer == "dump" {
-            println!("Dumping statistics to file");
-            store2.with_mut_contents(|s| {
-                let in_label = "store2_in";
-                let out_label = "store2_out";
-                let _ = s.in_statistics.dump_statistics(in_label);
-                let _ = s.out_statistics.dump_statistics(out_label);
-            });
-            store3.with_mut_contents(|s| {
-                let in_label = "store3_in";
-                let out_label = "store3_out";
-                let _ = s.in_statistics.dump_statistics(in_label);
-                let _ = s.out_statistics.dump_statistics(out_label);
-            });
+    thread::spawn(move || -> Result<()> {
+        loop {
+            let mut buffer = String::new();
+            let _ = io::stdin().read_line(&mut buffer);
+            buffer.pop(); // erase newline
+            println!("Received command {:?}", buffer);
+            if buffer == "dump" {
+                println!("Dumping statistics to file");
+                store2.with_mut_contents(|s| -> Result<()> {
+                    let in_label = "store2_in";
+                    let out_label = "store2_out";
+                    s.in_statistics.dump_statistics(in_label)?;
+                    s.out_statistics.dump_statistics(out_label)?;
+                    Ok(())
+                })?;
+                store3.with_mut_contents(|s| -> Result<()> {
+                    let in_label = "store3_in";
+                    let out_label = "store3_out";
+                    s.in_statistics.dump_statistics(in_label)?;
+                    s.out_statistics.dump_statistics(out_label)?;
+                    Ok(())
+                })?;
+            }
         }
     });
 
@@ -301,4 +290,49 @@ fn main() -> Result<()> {
             install_gdp_pipeline(q.clone(), switch_pipeline(q.clone(), store3), store3, name3)
         })?
         .execute()
+}
+
+fn start_prod_server(config: RuntimeConfig, mode: ProdMode) -> Result<()> {
+    let pipeline = match mode {
+        ProdMode::Router => rib_pipeline,
+        ProdMode::Switch => switch_pipeline,
+    };
+
+    let store = Store::new();
+
+    Runtime::build(config)?
+        .add_pipeline_to_port("eth1", move |q| {
+            install_gdp_pipeline(q.clone(), pipeline(q.clone(), store), store, "prod")
+        })?
+        .execute()
+}
+
+fn main() -> Result<()> {
+    test_signatures(b"go bears").unwrap();
+
+    let subscriber = fmt::Subscriber::builder()
+        .with_max_level(Level::WARN)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber)?;
+
+    let matches = clap_app!(capsule =>
+        (@arg mode: -m --mode * +takes_value +case_insensitive possible_values(&Mode::variants()) "The mode of the node (dev/router/switch)")
+    )
+    .get_matches();
+
+    let mode = value_t!(matches, "mode", Mode).unwrap_or_else(|e| e.exit());
+    let path = match mode {
+        Mode::Dev => "conf.toml",
+        Mode::Router => "ec2.toml",
+        Mode::Switch => "ec2.toml",
+    };
+
+    let content = fs::read_to_string(path)?;
+    let config = toml::from_str(&content)?;
+
+    match mode {
+        Mode::Dev => start_dev_server(config),
+        Mode::Router => start_prod_server(config, ProdMode::Router),
+        Mode::Switch => start_prod_server(config, ProdMode::Switch),
+    }
 }

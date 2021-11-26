@@ -28,3 +28,5 @@ signatory = { version = "0.23.1", features = ["ed25519"] }
 hdrhistogram = "6.0"
 chrono = "0.4"
 signal-hook = "0.3.10"
+clap = "2.33.3"
+toml = "0.5.8"

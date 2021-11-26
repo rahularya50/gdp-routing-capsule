@@ -7,9 +7,7 @@ use std::collections::HashMap;
 
 pub type GdpGroupAction = Box<GroupByBatchBuilder<Gdp<Ipv4>>>;
 pub type GdpMap<T> = HashMap<Option<T>, GdpGroupAction>;
-pub trait GdpPipeline: FnOnce(&mut GdpMap<GdpAction>) {}
-
-impl<T: FnOnce(&mut GdpMap<GdpAction>)> GdpPipeline for T {}
+pub type GdpPipeline = Box<dyn FnOnce(&mut GdpMap<GdpAction>)>;
 
 #[doc(hidden)]
 #[macro_export]
@@ -30,12 +28,12 @@ where
 
 #[macro_export]
 macro_rules! pipeline {
-    { $($key:expr => |$arg:tt| $body:block)+ } => {$crate::pipeline::constrain(move |lookup| {
+    { $($key:expr => |$arg:tt| $body:block)+ } => {Box::new($crate::pipeline::constrain(move |lookup| {
         $crate::__move_compose!(lookup, $($key => |$arg| $body),*);
         lookup.insert(None, Box::new(|group| Box::new(group)));
-    })};
-    { $($key:expr => |$arg:tt| $body:block)+ _ => |$_arg:tt| $_body:block } => {$crate::pipeline::constrain(move |lookup| {
+    }))};
+    { $($key:expr => |$arg:tt| $body:block)+ _ => |$_arg:tt| $_body:block } => {Box::new($crate::pipeline::constrain(move |lookup| {
         $crate::__move_compose!(lookup, $($key => |$arg| $body),*);
         lookup.insert(None, Box::new(|$_arg| Box::new($_body)));
-    })};
+    }))};
 }
