@@ -7,26 +7,24 @@ use crate::pipeline::GdpPipeline;
 use crate::rib::create_rib_request;
 use crate::rib::handle_rib_query;
 use crate::rib::handle_rib_reply;
+use crate::rib::load_routes;
 use crate::rib::test_signatures;
 use crate::rib::Routes;
+use crate::workloads::dev_schedule;
 use anyhow::anyhow;
 use anyhow::Result;
-use capsule::batch::{self, Batch, Pipeline, Poll};
+use capsule::batch::{Batch, Pipeline, Poll};
 use capsule::config::RuntimeConfig;
-use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::Mbuf;
 use capsule::{PortQueue, Runtime};
 use clap::{arg_enum, clap_app, value_t};
-use rib::load_routes;
 use std::fs;
 use std::io;
 use std::net::Ipv4Addr;
 use std::thread;
-use std::time::Duration;
-use tokio::time::sleep;
 use tracing::Level;
 use tracing_subscriber::fmt;
 
@@ -37,7 +35,9 @@ mod inject;
 mod kvs;
 mod pipeline;
 mod rib;
+mod schedule;
 mod statistics;
+mod workloads;
 
 fn find_destination(gdp: &Gdp<Ipv4>, store: Store) -> Option<Ipv4Addr> {
     store.with_contents(|store| store.forwarding_table.get(&gdp.dst()).cloned())
@@ -119,70 +119,6 @@ fn rib_pipeline() -> Result<impl GdpPipeline + Copy> {
     })
 }
 
-fn prep_packet(
-    reply: Mbuf,
-    src_mac: MacAddr,
-    src_ip: Ipv4Addr,
-    dst_mac: MacAddr,
-    dst_ip: Ipv4Addr,
-) -> Result<Gdp<Ipv4>> {
-    let mut reply = reply.push::<Ethernet>()?;
-    reply.set_src(src_mac);
-    reply.set_dst(dst_mac);
-
-    let mut reply = reply.push::<Ipv4>()?;
-    reply.set_src(src_ip);
-    reply.set_dst(dst_ip);
-
-    let mut reply = reply.push::<Udp<Ipv4>>()?;
-    reply.set_src_port(27182);
-    reply.set_dst_port(27182);
-
-    let reply = reply.push::<DTls<Ipv4>>()?;
-
-    let mut reply = reply.push::<Gdp<Ipv4>>()?;
-    reply.set_action(GdpAction::Forward);
-    reply.set_dst(1);
-
-    let message = "Initial server outgoing!".as_bytes();
-
-    let offset = reply.payload_offset();
-    reply.mbuf_mut().extend(offset, message.len())?;
-    reply.mbuf_mut().write_data_slice(offset, &message)?;
-
-    reply.reconcile_all();
-
-    Ok(reply)
-}
-
-fn send_initial_packet(q: PortQueue, nic_name: &str, store: Store) -> () {
-    let src_mac = q.mac_addr();
-    batch::poll_fn(|| Mbuf::alloc_bulk(1).unwrap())
-        .map(move |packet| {
-            prep_packet(
-                packet,
-                src_mac,
-                Ipv4Addr::new(10, 100, 1, 11),
-                MacAddr::new(0x02, 0x00, 0x00, 0xff, 0xff, 0x02),
-                Ipv4Addr::new(10, 100, 1, 12),
-            )
-        })
-        .for_each(move |packet| {
-            println!(
-                "Sending out one-shot packet from NIC {:?}: {:?}",
-                nic_name, packet
-            );
-            store.with_mut_contents(|store| {
-                store.out_statistics.record_packet(packet);
-            });
-            Ok(())
-        })
-        .map(|packet| Ok(packet.deparse()))
-        .map(encrypt_gdp)
-        .send(q)
-        .run_once();
-}
-
 fn install_gdp_pipeline<'a>(
     q: PortQueue,
     gdp_pipeline: impl GdpPipeline,
@@ -251,7 +187,7 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
     let store3 = Store::new();
 
     let name1 = "rib1";
-    let name2 = "sw1";
+    let _name2 = "sw1";
     let name3 = "sw2";
 
     // Command handling thread
@@ -286,12 +222,7 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
         .add_pipeline_to_port("eth1", move |q| {
             install_gdp_pipeline(q.clone(), pipeline1, store1, name1)
         })?
-        .add_pipeline_to_port("eth2", move |q| {
-            // send_initial_packet(q.clone(), name2, store2);
-            // sleep(Duration::from_millis(1000));
-            // send_initial_packet(q.clone(), name2, store2);
-            install_gdp_pipeline(q.clone(), switch_pipeline(store2), store2, name2)
-        })?
+        .add_pipeline_to_port("eth2", move |q| dev_schedule(q, "dev schedule", store2))?
         .add_pipeline_to_port("eth3", move |q| {
             install_gdp_pipeline(q, switch_pipeline(store3), store3, name3)
         })?
