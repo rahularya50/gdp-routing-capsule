@@ -53,10 +53,10 @@ pub fn create_rib_request(
     message.set_action(GdpAction::RibGet);
     message.set_key(key);
 
-    let message = "RIB Query".as_bytes();
-    let offset = out.payload_offset();
-    out.mbuf_mut().extend(offset, message.len())?;
-    out.mbuf_mut().write_data_slice(offset, &message)?;
+    let content = "RIB Query".as_bytes();
+    let offset = message.payload_offset();
+    message.mbuf_mut().extend(offset, content.len())?;
+    message.mbuf_mut().write_data_slice(offset, &content)?;
 
     message.reconcile_all();
 
