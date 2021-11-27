@@ -88,7 +88,7 @@ pub fn switch_pipeline(store: Store) -> Result<impl GdpPipeline + Copy> {
                             let src_ip = packet.envelope().envelope().envelope().src();
                             let src_mac = packet.envelope().envelope().envelope().envelope().dst();
                             println!("Querying RIB for destination {:?}", packet.dst());
-                            create_rib_request(Mbuf::new()?, packet.dst(), src_mac, src_ip, store)
+                            create_rib_request(Mbuf::new()?, packet.dst(), src_mac, src_ip, routes.rib)
                         })
                     }
                 })

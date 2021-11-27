@@ -25,8 +25,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::net::Ipv4Addr;
 
-// static RIB_MAC: MacAddr = MacAddr::new(0x02, 0x00, 0x00, 0xFF, 0xFF, 0x00);
-const RIB_IP: Ipv4Addr = Ipv4Addr::new(10, 100, 1, 10);
 const RIB_PORT: u16 = 27182;
 
 pub fn create_rib_request(
@@ -34,15 +32,15 @@ pub fn create_rib_request(
     key: GdpName,
     src_mac: MacAddr,
     src_ip: Ipv4Addr,
-    _store: Store,
+    dst_route: Route,
 ) -> Result<Gdp<Ipv4>> {
     let mut message = message.push::<Ethernet>()?;
     message.set_src(src_mac);
-    message.set_dst(MacAddr::new(0x02, 0x00, 0x00, 0xFF, 0xFF, 0x00));
+    message.set_dst(dst_route.mac);
 
     let mut message = message.push::<Ipv4>()?;
     message.set_src(src_ip);
-    message.set_dst(RIB_IP);
+    message.set_dst(dst_route.ip);
 
     let mut message = message.push::<Udp<Ipv4>>()?;
     message.set_src_port(RIB_PORT);
@@ -118,10 +116,12 @@ pub fn rib_pipeline() -> Result<impl GdpPipeline + Copy> {
 #[derive(Deserialize)]
 struct SerializedRoutes {
     routes: HashMap<String, Route>,
+    rib: Route,
 }
 
 pub struct Routes {
     pub routes: HashMap<GdpName, Route>,
+    pub rib: Route,
 }
 #[derive(Clone, Copy, Deserialize)]
 pub struct Route {
@@ -139,6 +139,7 @@ pub fn load_routes(path: &str) -> Result<Routes> {
             .iter()
             .map(|it| (it.0.parse::<GdpName>().unwrap(), it.1.to_owned()))
             .collect(),
+        rib: serialized.rib,
     })
 }
 
