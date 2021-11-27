@@ -3,7 +3,11 @@ use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
 use crate::kvs::GdpName;
 use crate::kvs::Store;
+use crate::pipeline;
+use crate::utils::BroadcastMacAddr;
+use crate::GdpPipeline;
 use anyhow::{anyhow, Result};
+use capsule::batch::Batch;
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
@@ -35,7 +39,7 @@ pub fn create_rib_request(
 ) -> Result<Gdp<Ipv4>> {
     let mut message = message.push::<Ethernet>()?;
     message.set_src(src_mac);
-    message.set_dst(MacAddr::new(0x02, 0x00, 0x00, 0xFF, 0xFF, 0x00));
+    message.set_dst(MacAddr::broadcast());
 
     let mut message = message.push::<Ipv4>()?;
     message.set_src(src_ip);
@@ -66,7 +70,7 @@ pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store) -> Result<()> {
     Ok(())
 }
 
-pub fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes) -> Result<Gdp<Ipv4>> {
+fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes) -> Result<Gdp<Ipv4>> {
     let dtls = packet.envelope();
     let udp = dtls.envelope();
     let ipv4 = udp.envelope();
@@ -101,12 +105,23 @@ pub fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes) -> Result<Gdp<Ipv4>
     out.reconcile_all();
     Ok(out)
 }
+
+pub fn rib_pipeline() -> Result<impl GdpPipeline + Copy> {
+    let routes: &Routes = Box::leak(Box::new(load_routes("routes.toml")?));
+    Ok(pipeline! {
+        GdpAction::RibGet => |group| {
+            group.replace(move |packet| handle_rib_query(packet, routes))
+        }
+        _ => |group| {group.filter(|_| false)}
+    })
+}
+
 #[derive(Deserialize)]
-pub struct Routes {
+struct Routes {
     routes: HashMap<String, Ipv4Addr>,
 }
 
-pub fn load_routes(path: &str) -> Result<Routes> {
+fn load_routes(path: &str) -> Result<Routes> {
     let content = fs::read_to_string(path)?;
     Ok(toml::from_str(&content)?)
 }

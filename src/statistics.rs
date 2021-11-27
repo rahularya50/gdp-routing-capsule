@@ -84,7 +84,7 @@ impl GdpStatistics {
 
     pub fn dump_statistics(&mut self, label: &str) -> std::io::Result<()> {
         // Dump statistics to {label}.log
-        
+
         self.resize_if_needed();
 
         // Open a new file and dump the statistics
@@ -98,34 +98,14 @@ impl GdpStatistics {
         // Write globals data
         // p99 bandwidth
         // average bandwidth
-        file.write_all(
-            "globals\n\n".as_bytes(),
-        )?;
-        file.write_all(
-            format!(
-                "label: {}\n",
-                label
-            )
-            .as_bytes(),
-        )?;
-        file.write_all(
-            format!(
-                "block_width: {}ms\n",
-                self.block_width
-            )
-            .as_bytes(),
-        )?;
-        
-        // Write 
-        file.write_all(
-            "\n".as_bytes(),
-        )?;
-        file.write_all(
-            "block_level\n\n".as_bytes(),
-        )?;
-        file.write_all(
-            "time_offset (epoch)\tbytes (B)\tbandwidth (B/s)\n".as_bytes()
-        )?;
+        file.write_all("globals\n\n".as_bytes())?;
+        file.write_all(format!("label: {}\n", label).as_bytes())?;
+        file.write_all(format!("block_width: {}ms\n", self.block_width).as_bytes())?;
+
+        // Write
+        file.write_all("\n".as_bytes())?;
+        file.write_all("block_level\n\n".as_bytes())?;
+        file.write_all("time_offset (epoch)\tbytes (B)\tbandwidth (B/s)\n".as_bytes())?;
 
         // Write block-level bandwidth statistics
         // Cannot write last element since it might not be complete
@@ -135,11 +115,7 @@ impl GdpStatistics {
             let bandwidth = (blk.bytes_count as f64 / ((self.block_width as f64) / 1000.0)) as u64;
             let time_offset = self.start_time + self.block_width * (i as u64);
             file.write_all(
-                format!(
-                    "{}\t{}\t{}\n",
-                    time_offset, blk.bytes_count, bandwidth
-                )
-                .as_bytes(),
+                format!("{}\t{}\t{}\n", time_offset, blk.bytes_count, bandwidth).as_bytes(),
             )?;
         }
 
