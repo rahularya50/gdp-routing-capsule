@@ -14,11 +14,13 @@ use crate::workloads::start_client_server;
 use anyhow::Result;
 use capsule::batch::{Batch, Pipeline, Poll};
 use capsule::config::RuntimeConfig;
+use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::{PortQueue, Runtime};
 use clap::{arg_enum, clap_app, value_t};
+use rib::Route;
 use std::fs;
 use std::io;
 use std::net::Ipv4Addr;
@@ -36,7 +38,6 @@ mod rib;
 mod schedule;
 mod statistics;
 mod switch;
-mod utils;
 mod workloads;
 
 fn install_gdp_pipeline<'a>(
@@ -44,13 +45,13 @@ fn install_gdp_pipeline<'a>(
     gdp_pipeline: impl GdpPipeline,
     store: Store,
     nic_name: &'a str,
-    node_addr: Option<Ipv4Addr>,
+    node_addr: Option<Route>,
 ) -> impl Pipeline + 'a {
     Poll::new(q.clone())
         .map(|packet| Ok(packet.parse::<Ethernet>()?.parse::<Ipv4>()?))
         .filter(move |packet| {
             if let Some(node_addr) = node_addr {
-                packet.dst() == node_addr
+                packet.dst() == node_addr.ip && packet.envelope().dst() == node_addr.mac
             } else {
                 true
             }
@@ -142,6 +143,7 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
     });
 
     let pipeline1 = rib_pipeline()?;
+    let pipeline3 = switch_pipeline(store3)?;
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| {
             install_gdp_pipeline(
@@ -149,31 +151,35 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
                 pipeline1,
                 store1,
                 name1,
-                Some(Ipv4Addr::new(10, 100, 1, 10)),
+                Some(Route {
+                    ip: Ipv4Addr::new(10, 100, 1, 10),
+                    mac: MacAddr::new(0x02, 0x00, 0x00, 0xff, 0xff, 0x00),
+                }),
             )
         })?
         .add_pipeline_to_port("eth2", move |q| dev_schedule(q, name2, store2))?
         .add_pipeline_to_port("eth3", move |q| {
             install_gdp_pipeline(
                 q,
-                switch_pipeline(store3),
+                pipeline3,
                 store3,
                 name3,
-                Some(Ipv4Addr::new(10, 100, 1, 12)),
+                Some(Route {
+                    ip: Ipv4Addr::new(10, 100, 1, 12),
+                    mac: MacAddr::new(0x02, 0x00, 0x00, 0xff, 0xff, 0x02),
+                }),
             )
         })?
         .execute()
 }
 
-pub fn startup_ip_lookup(gdp_name: GdpName) -> Option<Ipv4Addr> {
+pub fn startup_route_lookup(gdp_name: GdpName) -> Option<Route> {
     // FIXME: this is an awful hack, we shouldn't need to read the RIB to get our IP addr!
-    Some(
-        load_routes("routes.toml")
-            .ok()?
-            .routes
-            .get(&gdp_name.to_string())?
-            .to_owned(),
-    )
+    load_routes("routes.toml")
+        .ok()?
+        .routes
+        .get(&gdp_name)
+        .map(|route| route.to_owned())
 }
 
 fn start_prod_server(
@@ -183,13 +189,13 @@ fn start_prod_server(
 ) -> Result<()> {
     let store = Store::new();
 
-    let node_addr = gdp_name.map(startup_ip_lookup).flatten();
+    let node_addr = gdp_name.map(startup_route_lookup).flatten();
 
     fn start<T: GdpPipeline + Send + Sync + Copy + 'static>(
         config: RuntimeConfig,
         store: Store,
         pipeline: T,
-        node_addr: Option<Ipv4Addr>,
+        node_addr: Option<Route>,
     ) -> Result<()> {
         Runtime::build(config)?
             .add_pipeline_to_port("eth1", move |q| {
@@ -200,7 +206,7 @@ fn start_prod_server(
 
     match mode {
         ProdMode::Router => start(config, store, rib_pipeline()?, node_addr),
-        ProdMode::Switch => start(config, store, switch_pipeline(store), node_addr),
+        ProdMode::Switch => start(config, store, switch_pipeline(store)?, node_addr),
     }
 }
 

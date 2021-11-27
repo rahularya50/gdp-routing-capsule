@@ -2,16 +2,17 @@ use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
 use crate::gdpbatch::GdpBatch;
 use crate::kvs::Store;
+use crate::load_routes;
 use crate::pipeline;
 use crate::pipeline::GdpPipeline;
 use crate::rib::create_rib_request;
 use crate::rib::handle_rib_reply;
-use crate::utils::BroadcastMacAddr;
+use crate::rib::Routes;
+use crate::Route;
 use anyhow::anyhow;
 use anyhow::Result;
 use capsule::batch::Batch;
 use capsule::batch::Either;
-use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Packet;
 use capsule::packets::Udp;
@@ -35,24 +36,24 @@ fn bounce_udp(udp: &mut Udp<Ipv4>) {
     ethernet.set_dst(eth_dst);
 }
 
-fn forward_gdp(mut gdp: Gdp<Ipv4>, dst: Ipv4Addr) -> Result<Either<Gdp<Ipv4>>> {
+fn forward_gdp(mut gdp: Gdp<Ipv4>, dst: Route) -> Result<Either<Gdp<Ipv4>>> {
     let dtls = gdp.envelope_mut();
     let udp = dtls.envelope_mut();
 
     let ipv4 = udp.envelope_mut();
 
-    if ipv4.dst() == dst {
+    if ipv4.dst() == dst.ip {
         // we are the destination!
         println!("packet received!");
         return Ok(Either::Drop(gdp.reset()));
     }
 
     ipv4.set_src(ipv4.dst());
-    ipv4.set_dst(dst);
+    ipv4.set_dst(dst.ip);
 
     let ethernet = ipv4.envelope_mut();
     ethernet.set_src(ethernet.dst());
-    ethernet.set_dst(MacAddr::broadcast());
+    ethernet.set_dst(dst.mac);
 
     Ok(Either::Keep(gdp))
 }
@@ -65,16 +66,19 @@ fn bounce_gdp(mut gdp: Gdp<Ipv4>) -> Result<Gdp<Ipv4>> {
     Ok(gdp)
 }
 
-pub fn switch_pipeline(store: Store) -> impl GdpPipeline + Copy {
-    pipeline! {
+pub fn switch_pipeline(store: Store) -> Result<impl GdpPipeline + Copy> {
+    // FIXME: Ugly hack!
+    let routes: &Routes = Box::leak(Box::new(load_routes("routes.toml")?));
+    Ok(pipeline! {
         GdpAction::Forward => |group| {
             group.group_by(
                 move |packet| find_destination(packet, store).is_some(),
                 pipeline! {
                     true => |group| {
                         group.filter_map(move |packet| {
-                            let dst = find_destination(&packet, store).ok_or(anyhow!("can't find the destination"))?;
-                            forward_gdp(packet, dst)
+                            let ip = find_destination(&packet, store).ok_or(anyhow!("can't find the destination"))?;
+                            let mac = routes.routes.get(&packet.dst()).unwrap().mac; // FIXME - this is a hack!!!
+                            forward_gdp(packet, Route {ip, mac})
                         })
                     }
                     false => |group| {
@@ -94,5 +98,5 @@ pub fn switch_pipeline(store: Store) -> impl GdpPipeline + Copy {
                 .filter(|_| false)
         }
         _ => |group| {group.filter(|_| false)}
-    }
+    })
 }

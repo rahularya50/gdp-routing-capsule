@@ -4,7 +4,6 @@ use crate::gdp::GdpAction;
 use crate::kvs::GdpName;
 use crate::kvs::Store;
 use crate::pipeline;
-use crate::utils::BroadcastMacAddr;
 use crate::GdpPipeline;
 use anyhow::{anyhow, Result};
 use capsule::batch::Batch;
@@ -39,7 +38,7 @@ pub fn create_rib_request(
 ) -> Result<Gdp<Ipv4>> {
     let mut message = message.push::<Ethernet>()?;
     message.set_src(src_mac);
-    message.set_dst(MacAddr::broadcast());
+    message.set_dst(MacAddr::new(0x02, 0x00, 0x00, 0xFF, 0xFF, 0x00));
 
     let mut message = message.push::<Ipv4>()?;
     message.set_src(src_ip);
@@ -97,9 +96,9 @@ fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes) -> Result<Gdp<Ipv4>> {
     out.set_value(
         routes
             .routes
-            .get(&packet.key().to_string())
+            .get(&packet.key())
             .ok_or(anyhow!("GDPName not found!"))?
-            .clone()
+            .ip
             .into(),
     );
     out.reconcile_all();
@@ -117,13 +116,30 @@ pub fn rib_pipeline() -> Result<impl GdpPipeline + Copy> {
 }
 
 #[derive(Deserialize)]
+struct SerializedRoutes {
+    routes: HashMap<String, Route>,
+}
+
 pub struct Routes {
-    pub routes: HashMap<String, Ipv4Addr>,
+    pub routes: HashMap<GdpName, Route>,
+}
+#[derive(Clone, Copy, Deserialize)]
+pub struct Route {
+    pub ip: Ipv4Addr,
+    pub mac: MacAddr,
 }
 
 pub fn load_routes(path: &str) -> Result<Routes> {
     let content = fs::read_to_string(path)?;
-    Ok(toml::from_str(&content)?)
+    let serialized: SerializedRoutes = toml::from_str(&content)?;
+
+    Ok(Routes {
+        routes: serialized
+            .routes
+            .iter()
+            .map(|it| (it.0.parse::<GdpName>().unwrap(), it.1.to_owned()))
+            .collect(),
+    })
 }
 
 fn gen_signing_key() -> Result<SigningKey> {
