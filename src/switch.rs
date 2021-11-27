@@ -29,7 +29,13 @@ fn bounce_udp(udp: &mut Udp<Ipv4>) {
     udp.set_src_port(udp_src_port);
     udp.set_dst_port(udp_dst_port);
 
-    let ethernet = udp.envelope_mut();
+    let ipv4 = udp.envelope_mut();
+    let ip_src = ipv4.dst();
+    let ip_dst = ipv4.src();
+    ipv4.set_src(ip_src);
+    ipv4.set_dst(ip_dst);
+
+    let ethernet = ipv4.envelope_mut();
     let eth_src = ethernet.dst();
     let eth_dst = ethernet.src();
     ethernet.set_src(eth_src);
@@ -85,7 +91,7 @@ pub fn switch_pipeline(store: Store, rib_route: Route) -> Result<impl GdpPipelin
                         .map(bounce_gdp)
                         .inject(move |packet| {
                             let src_ip = packet.envelope().envelope().envelope().src();
-                            let src_mac = packet.envelope().envelope().envelope().envelope().dst();
+                            let src_mac = packet.envelope().envelope().envelope().envelope().src();
                             println!("Querying RIB for destination {:?}", packet.dst());
                             create_rib_request(Mbuf::new()?, packet.dst(), src_mac, src_ip, rib_route)
                         })

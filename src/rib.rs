@@ -53,6 +53,11 @@ pub fn create_rib_request(
     message.set_action(GdpAction::RibGet);
     message.set_key(key);
 
+    let message = "RIB Query".as_bytes();
+    let offset = out.payload_offset();
+    out.mbuf_mut().extend(offset, message.len())?;
+    out.mbuf_mut().write_data_slice(offset, &message)?;
+
     message.reconcile_all();
 
     Ok(message)
@@ -99,6 +104,12 @@ fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes) -> Result<Gdp<Ipv4>> {
             .ip
             .into(),
     );
+
+    let message = "RIB Reply!".as_bytes();
+    let offset = out.payload_offset();
+    out.mbuf_mut().extend(offset, message.len())?;
+    out.mbuf_mut().write_data_slice(offset, &message)?;
+
     out.reconcile_all();
     Ok(out)
 }
