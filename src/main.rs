@@ -3,8 +3,9 @@
 use crate::dtls::{decrypt_gdp, encrypt_gdp, DTls};
 use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
-use crate::kvs::Store;
+use crate::kvs::{GdpName, Store};
 use crate::pipeline::GdpPipeline;
+use crate::rib::load_routes;
 use crate::rib::rib_pipeline;
 use crate::rib::test_signatures;
 use crate::switch::switch_pipeline;
@@ -19,6 +20,7 @@ use capsule::{PortQueue, Runtime};
 use clap::{arg_enum, clap_app, value_t};
 use std::fs;
 use std::io;
+use std::net::Ipv4Addr;
 use std::thread;
 use tracing::Level;
 use tracing_subscriber::fmt;
@@ -41,15 +43,18 @@ fn install_gdp_pipeline<'a>(
     gdp_pipeline: impl GdpPipeline,
     store: Store,
     nic_name: &'a str,
+    node_addr: Option<Ipv4Addr>,
 ) -> impl Pipeline + 'a {
     Poll::new(q.clone())
-        .map(|packet| {
-            Ok(packet
-                .parse::<Ethernet>()?
-                .parse::<Ipv4>()?
-                .parse::<Udp<Ipv4>>()?
-                .parse::<DTls<Ipv4>>()?)
+        .map(|packet| Ok(packet.parse::<Ethernet>()?.parse::<Ipv4>()?))
+        .filter(move |packet| {
+            if let Some(node_addr) = node_addr {
+                packet.dst() == node_addr
+            } else {
+                true
+            }
         })
+        .map(|packet| Ok(packet.parse::<Udp<Ipv4>>()?.parse::<DTls<Ipv4>>()?))
         .map(decrypt_gdp)
         .map(|packet| Ok(packet.parse::<Gdp<Ipv4>>()?))
         .for_each(move |packet| {
@@ -137,33 +142,63 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
     let pipeline1 = rib_pipeline()?;
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| {
-            install_gdp_pipeline(q.clone(), pipeline1, store1, name1)
+            install_gdp_pipeline(
+                q.clone(),
+                pipeline1,
+                store1,
+                name1,
+                Some(Ipv4Addr::new(10, 100, 1, 10)),
+            )
         })?
         .add_pipeline_to_port("eth2", move |q| dev_schedule(q, name2, store2))?
         .add_pipeline_to_port("eth3", move |q| {
-            install_gdp_pipeline(q, switch_pipeline(store3), store3, name3)
+            install_gdp_pipeline(
+                q,
+                switch_pipeline(store3),
+                store3,
+                name3,
+                Some(Ipv4Addr::new(10, 100, 1, 12)),
+            )
         })?
         .execute()
 }
 
-fn start_prod_server(config: RuntimeConfig, mode: ProdMode) -> Result<()> {
+fn start_prod_server(
+    config: RuntimeConfig,
+    mode: ProdMode,
+    gdp_name: Option<GdpName>,
+) -> Result<()> {
     let store = Store::new();
+
+    // FIXME: this is an awful hack, we shouldn't need to read the RIB to get our IP addr!
+    let node_addr = gdp_name
+        .map(|gdp_name| {
+            Some(
+                load_routes("routes.toml")
+                    .ok()?
+                    .routes
+                    .get(&gdp_name.to_string())?
+                    .to_owned(),
+            )
+        })
+        .flatten();
 
     fn start<T: GdpPipeline + Send + Sync + Copy + 'static>(
         config: RuntimeConfig,
         store: Store,
         pipeline: T,
+        node_addr: Option<Ipv4Addr>,
     ) -> Result<()> {
         Runtime::build(config)?
             .add_pipeline_to_port("eth1", move |q| {
-                install_gdp_pipeline(q, pipeline, store, "prod")
+                install_gdp_pipeline(q, pipeline, store, "prod", node_addr)
             })?
             .execute()
     }
 
     match mode {
-        ProdMode::Router => start(config, store, rib_pipeline()?),
-        ProdMode::Switch => start(config, store, switch_pipeline(store)),
+        ProdMode::Router => start(config, store, rib_pipeline()?, node_addr),
+        ProdMode::Switch => start(config, store, switch_pipeline(store), node_addr),
     }
 }
 
@@ -198,7 +233,15 @@ fn main() -> Result<()> {
 
     match mode {
         Mode::Dev => start_dev_server(config),
-        Mode::Router => start_prod_server(config, ProdMode::Router),
-        Mode::Switch => start_prod_server(config, ProdMode::Switch),
+        Mode::Router => start_prod_server(
+            config,
+            ProdMode::Router,
+            value_t!(matches, "name", GdpName).ok(),
+        ),
+        Mode::Switch => start_prod_server(
+            config,
+            ProdMode::Switch,
+            Some(value_t!(matches, "name", GdpName)?),
+        ),
     }
 }

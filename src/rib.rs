@@ -117,11 +117,11 @@ pub fn rib_pipeline() -> Result<impl GdpPipeline + Copy> {
 }
 
 #[derive(Deserialize)]
-struct Routes {
-    routes: HashMap<String, Ipv4Addr>,
+pub struct Routes {
+    pub routes: HashMap<String, Ipv4Addr>,
 }
 
-fn load_routes(path: &str) -> Result<Routes> {
+pub fn load_routes(path: &str) -> Result<Routes> {
     let content = fs::read_to_string(path)?;
     Ok(toml::from_str(&content)?)
 }
