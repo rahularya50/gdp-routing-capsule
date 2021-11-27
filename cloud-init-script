@@ -1,0 +1,38 @@
+Content-Type: multipart/mixed; boundary="//"
+MIME-Version: 1.0
+
+--//
+Content-Type: text/cloud-config; charset="us-ascii"
+MIME-Version: 1.0
+Content-Transfer-Encoding: 7bit
+Content-Disposition: attachment; filename="cloud-config.txt"
+
+#cloud-config
+cloud_final_modules:
+- [scripts-user, always]
+
+--//
+Content-Type: text/x-shellscript; charset="us-ascii"
+MIME-Version: 1.0
+Content-Transfer-Encoding: 7bit
+Content-Disposition: attachment; filename="userdata.txt"
+
+#!/bin/bash
+systemctl start docker
+
+modprobe uio
+modprobe uio_pci_generic
+cd dpdk-kmods/linux/igb_uio
+insmod igb_uio.ko
+cd ~
+
+docker run --rm --privileged --network=host \
+    -v /lib/modules:/lib/modules \
+    getcapsule/dpdk-devbind:19.11.6 \
+    /bin/bash -c 'dpdk-devbind.py --force -b igb_uio 0000:00:06.0'
+
+docker run -d -it     --privileged     --network=host     --name sandbox     --cap-add=SYS_PTRACE     --security-opt seccomp=unconfined     -v /lib/modules:/lib/modules     -v /dev/hugepages:/dev/hugepages     -v /home/ec2-user/gdp:/gdp     -v/usr/local/cargo/registry:/usr/local/cargo/registry     getcapsule/sandbox:19.11.6-1.50 tail -f /dev/null
+
+echo 'docker exec -it sandbox /bin/bash' > /usr/bin/rungdp
+chmod +x /usr/bin/rungdp
+--//--
