@@ -2,6 +2,7 @@ use crate::kvs::GdpName;
 use crate::DTls;
 
 use anyhow::{anyhow, Result};
+use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::ip::IpPacket;
 use capsule::packets::types::u16be;
 use capsule::packets::{Internal, Packet};
@@ -126,8 +127,10 @@ impl<T: IpPacket> Gdp<T> {
     }
 }
 
-impl<T: IpPacket> fmt::Debug for Gdp<T> {
+impl fmt::Debug for Gdp<Ipv4> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let ipv4 = self.envelope().envelope().envelope();
+        let ethernet = ipv4.envelope();
         f.debug_struct("gdp")
             .field("ttl", &self.ttl())
             .field("action", &self.action())
@@ -135,6 +138,8 @@ impl<T: IpPacket> fmt::Debug for Gdp<T> {
             .field("dst", &self.dst())
             .field("key", &self.key())
             .field("value", &self.value())
+            .field("ipv4_frame", ipv4)
+            .field("eth_frame", ethernet)
             .finish()
     }
 }

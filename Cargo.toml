@@ -11,7 +11,7 @@ Ping4 daemon example.
 """
 
 [[bin]]
-name = "ping4d"
+name = "gdp"
 path = "src/main.rs"
 doctest = false
 
