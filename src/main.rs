@@ -143,7 +143,13 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
     });
 
     let pipeline1 = rib_pipeline()?;
-    let pipeline3 = switch_pipeline(store3)?;
+    let pipeline3 = switch_pipeline(
+        store3,
+        Route {
+            ip: Ipv4Addr::new(10, 100, 1, 10),
+            mac: MacAddr::new(0x02, 0x00, 0x00, 0xFF, 0xFF, 0x00),
+        },
+    )?;
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| {
             install_gdp_pipeline(
@@ -175,7 +181,7 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
 
 pub fn startup_route_lookup(gdp_name: GdpName) -> Option<Route> {
     // FIXME: this is an awful hack, we shouldn't need to read the RIB to get our IP addr!
-    load_routes("routes.toml")
+    load_routes()
         .ok()?
         .routes
         .get(&gdp_name)
@@ -206,7 +212,12 @@ fn start_prod_server(
 
     match mode {
         ProdMode::Router => start(config, store, rib_pipeline()?, node_addr),
-        ProdMode::Switch => start(config, store, switch_pipeline(store)?, node_addr),
+        ProdMode::Switch => start(
+            config,
+            store,
+            switch_pipeline(store, load_routes()?.rib)?,
+            node_addr,
+        ),
     }
 }
 

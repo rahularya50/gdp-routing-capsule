@@ -66,9 +66,8 @@ fn bounce_gdp(mut gdp: Gdp<Ipv4>) -> Result<Gdp<Ipv4>> {
     Ok(gdp)
 }
 
-pub fn switch_pipeline(store: Store) -> Result<impl GdpPipeline + Copy> {
-    // FIXME: Ugly hack!
-    let routes: &Routes = Box::leak(Box::new(load_routes("routes.toml")?));
+pub fn switch_pipeline(store: Store, rib_route: Route) -> Result<impl GdpPipeline + Copy> {
+    let routes: &Routes = Box::leak(Box::new(load_routes()?));
     Ok(pipeline! {
         GdpAction::Forward => |group| {
             group.group_by(
@@ -88,7 +87,7 @@ pub fn switch_pipeline(store: Store) -> Result<impl GdpPipeline + Copy> {
                             let src_ip = packet.envelope().envelope().envelope().src();
                             let src_mac = packet.envelope().envelope().envelope().envelope().dst();
                             println!("Querying RIB for destination {:?}", packet.dst());
-                            create_rib_request(Mbuf::new()?, packet.dst(), src_mac, src_ip, routes.rib)
+                            create_rib_request(Mbuf::new()?, packet.dst(), src_mac, src_ip, rib_route)
                         })
                     }
                 })

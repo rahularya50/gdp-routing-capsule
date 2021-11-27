@@ -104,7 +104,7 @@ fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes) -> Result<Gdp<Ipv4>> {
 }
 
 pub fn rib_pipeline() -> Result<impl GdpPipeline + Copy> {
-    let routes: &Routes = Box::leak(Box::new(load_routes("routes.toml")?));
+    let routes: &Routes = Box::leak(Box::new(load_routes()?));
     Ok(pipeline! {
         GdpAction::RibGet => |group| {
             group.replace(move |packet| handle_rib_query(packet, routes))
@@ -129,8 +129,8 @@ pub struct Route {
     pub mac: MacAddr,
 }
 
-pub fn load_routes(path: &str) -> Result<Routes> {
-    let content = fs::read_to_string(path)?;
+pub fn load_routes() -> Result<Routes> {
+    let content = fs::read_to_string("routes.toml")?;
     let serialized: SerializedRoutes = toml::from_str(&content)?;
 
     Ok(Routes {
