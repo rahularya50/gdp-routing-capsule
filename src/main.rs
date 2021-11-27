@@ -10,6 +10,7 @@ use crate::rib::rib_pipeline;
 use crate::rib::test_signatures;
 use crate::switch::switch_pipeline;
 use crate::workloads::dev_schedule;
+use crate::workloads::start_client_server;
 use anyhow::Result;
 use capsule::batch::{Batch, Pipeline, Poll};
 use capsule::config::RuntimeConfig;
@@ -93,6 +94,7 @@ fn install_gdp_pipeline<'a>(
 arg_enum! {
     enum Mode {
         Dev,
+        Client,
         Router,
         Switch,
     }
@@ -163,6 +165,17 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
         .execute()
 }
 
+pub fn startup_ip_lookup(gdp_name: GdpName) -> Option<Ipv4Addr> {
+    // FIXME: this is an awful hack, we shouldn't need to read the RIB to get our IP addr!
+    Some(
+        load_routes("routes.toml")
+            .ok()?
+            .routes
+            .get(&gdp_name.to_string())?
+            .to_owned(),
+    )
+}
+
 fn start_prod_server(
     config: RuntimeConfig,
     mode: ProdMode,
@@ -170,18 +183,7 @@ fn start_prod_server(
 ) -> Result<()> {
     let store = Store::new();
 
-    // FIXME: this is an awful hack, we shouldn't need to read the RIB to get our IP addr!
-    let node_addr = gdp_name
-        .map(|gdp_name| {
-            Some(
-                load_routes("routes.toml")
-                    .ok()?
-                    .routes
-                    .get(&gdp_name.to_string())?
-                    .to_owned(),
-            )
-        })
-        .flatten();
+    let node_addr = gdp_name.map(startup_ip_lookup).flatten();
 
     fn start<T: GdpPipeline + Send + Sync + Copy + 'static>(
         config: RuntimeConfig,
@@ -226,22 +228,18 @@ fn main() -> Result<()> {
         Mode::Dev => "conf.toml",
         Mode::Router => "ec2.toml",
         Mode::Switch => "ec2.toml",
+        Mode::Client => "ec2.toml",
     };
 
     let content = fs::read_to_string(path)?;
     let config = toml::from_str(&content)?;
 
+    let gdp_name = value_t!(matches, "name", GdpName);
+
     match mode {
         Mode::Dev => start_dev_server(config),
-        Mode::Router => start_prod_server(
-            config,
-            ProdMode::Router,
-            value_t!(matches, "name", GdpName).ok(),
-        ),
-        Mode::Switch => start_prod_server(
-            config,
-            ProdMode::Switch,
-            Some(value_t!(matches, "name", GdpName)?),
-        ),
+        Mode::Router => start_prod_server(config, ProdMode::Router, gdp_name.ok()),
+        Mode::Switch => start_prod_server(config, ProdMode::Switch, Some(gdp_name?)),
+        Mode::Client => start_client_server(config, gdp_name?),
     }
 }

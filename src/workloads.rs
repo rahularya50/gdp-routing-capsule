@@ -1,16 +1,20 @@
 use crate::dtls::{encrypt_gdp, DTls};
 use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
-use crate::kvs::Store;
+use crate::kvs::{GdpName, Store};
 use crate::schedule::Schedule;
-use anyhow::Result;
+use crate::startup_ip_lookup;
+use crate::utils::BroadcastMacAddr;
+use anyhow::{anyhow, Result};
 use capsule::batch::{self, Batch, Pipeline};
+use capsule::config::RuntimeConfig;
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::Mbuf;
 use capsule::PortQueue;
+use capsule::Runtime;
 use std::net::Ipv4Addr;
 use std::time::Duration;
 use tokio_timer::delay_for;
@@ -51,18 +55,16 @@ fn prep_packet(
     Ok(reply)
 }
 
-fn send_initial_packet(q: PortQueue, nic_name: &str, store: Store) -> () {
+fn send_initial_packet(
+    q: PortQueue,
+    nic_name: &str,
+    store: Store,
+    src_ip: Ipv4Addr,
+    switch_ip: Ipv4Addr,
+) -> () {
     let src_mac = q.mac_addr();
     batch::poll_fn(|| Mbuf::alloc_bulk(1).unwrap())
-        .map(move |packet| {
-            prep_packet(
-                packet,
-                src_mac,
-                Ipv4Addr::new(10, 100, 1, 11),
-                MacAddr::new(0x02, 0x00, 0x00, 0xff, 0xff, 0x02),
-                Ipv4Addr::new(10, 100, 1, 12),
-            )
-        })
+        .map(move |packet| prep_packet(packet, src_mac, src_ip, MacAddr::broadcast(), switch_ip))
         .for_each(move |packet| {
             println!(
                 "Sending out one-shot packet from NIC {:?}: {:?}",
@@ -80,9 +82,29 @@ fn send_initial_packet(q: PortQueue, nic_name: &str, store: Store) -> () {
 }
 
 pub fn dev_schedule(q: PortQueue, name: &str, store: Store) -> impl Pipeline + '_ {
+    let src_ip = Ipv4Addr::new(10, 100, 1, 12);
+    let switch_ip = Ipv4Addr::new(10, 100, 1, 12);
     Schedule::new(name, async move {
-        send_initial_packet(q.clone(), name, store);
+        send_initial_packet(q.clone(), name, store, src_ip, switch_ip);
         delay_for(Duration::from_millis(1000)).await;
-        send_initial_packet(q.clone(), name, store);
+        send_initial_packet(q.clone(), name, store, src_ip, switch_ip);
     })
+}
+
+fn client_schedule(q: PortQueue, name: &str, store: Store, src_ip: Ipv4Addr) -> impl Pipeline + '_ {
+    let switch_ip = startup_ip_lookup(2).unwrap();
+    Schedule::new(name, async move {
+        send_initial_packet(q.clone(), name, store, src_ip, switch_ip);
+        delay_for(Duration::from_millis(1000)).await;
+        send_initial_packet(q.clone(), name, store, src_ip, switch_ip);
+    })
+}
+
+pub fn start_client_server(config: RuntimeConfig, gdp_name: GdpName) -> Result<()> {
+    let src_ip = startup_ip_lookup(gdp_name).ok_or(anyhow!("Invalid client GDPName!"))?;
+    Runtime::build(config)?
+        .add_pipeline_to_port("eth1", move |q| {
+            client_schedule(q, "client", Store::new(), src_ip)
+        })?
+        .execute()
 }
