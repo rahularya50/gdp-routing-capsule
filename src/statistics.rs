@@ -50,7 +50,7 @@ impl GdpStatistics {
             .unwrap();
         if current_time - self.start_time > (self.blocks.len() as u64) * self.block_width {
             self.blocks.resize_with(
-                (((current_time - self.start_time) / self.block_width) + 1)
+                (((current_time - self.start_time) / self.block_width) + 2)
                     .try_into()
                     .unwrap(),
                 || GdpStatisticBlock {
