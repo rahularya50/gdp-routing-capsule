@@ -31,6 +31,9 @@ docker run --rm --privileged --network=host \
     getcapsule/dpdk-devbind:19.11.6 \
     /bin/bash -c 'dpdk-devbind.py --force -b igb_uio 0000:00:06.0'
 
+docker stop $(docker ps -aq)
+docker rm $(docker ps -aq)
+
 docker run -d -it     --privileged     --network=host     --name sandbox     --cap-add=SYS_PTRACE     --security-opt seccomp=unconfined     -v /lib/modules:/lib/modules     -v /dev/hugepages:/dev/hugepages     -v /home/ec2-user/gdp:/gdp     -v/usr/local/cargo/registry:/usr/local/cargo/registry     getcapsule/sandbox:19.11.6-1.50 tail -f /dev/null
 
 echo 'docker exec -it sandbox /bin/bash' > /usr/bin/rungdp
