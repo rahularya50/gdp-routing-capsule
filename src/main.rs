@@ -14,17 +14,21 @@ use crate::workloads::start_client_server;
 use anyhow::Result;
 use capsule::batch::{Batch, Pipeline, Poll};
 use capsule::config::RuntimeConfig;
+use capsule::metrics;
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::{PortQueue, Runtime};
 use clap::{arg_enum, clap_app, value_t};
+use metrics_core::{Builder, Drain, Observe};
+use metrics_observer_yaml::YamlBuilder;
 use rib::Route;
 use std::fs;
-use std::io;
+use std::time::Duration;
+
 use std::net::Ipv4Addr;
-use std::thread;
+
 use tracing::Level;
 use tracing_subscriber::fmt;
 
@@ -69,9 +73,9 @@ fn install_gdp_pipeline<'a>(
             println!("Parsed gdp packet in NIC {:?}: {:?}", nic_name, packet);
 
             // Record incoming packet statistics
-            store.with_mut_contents(|store| {
-                store.in_statistics.record_packet(packet);
-            });
+            // store.with_mut_contents(|store| {
+            //     store.in_statistics.record_packet(packet);
+            // });
             Ok(())
         })
         .group_by(
@@ -82,9 +86,9 @@ fn install_gdp_pipeline<'a>(
             println!("Sent gdp packet in NIC {:?}: {:?}", nic_name, packet);
 
             // Record outgoing packet statistics
-            store.with_mut_contents(|store| {
-                store.out_statistics.record_packet(packet);
-            });
+            // store.with_mut_contents(|store| {
+            //     store.out_statistics.record_packet(packet);
+            // });
             Ok(())
         })
         .map(|packet| Ok(packet.deparse()))
@@ -115,32 +119,32 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
     let name2 = "sw1";
     let name3 = "sw2";
 
-    // Command handling thread
-    thread::spawn(move || -> Result<()> {
-        loop {
-            let mut buffer = String::new();
-            let _ = io::stdin().read_line(&mut buffer);
-            buffer.pop(); // erase newline
-            println!("Received command {:?}", buffer);
-            if buffer == "dump" {
-                println!("Dumping statistics to file");
-                store2.with_mut_contents(|s| -> Result<()> {
-                    let in_label = "store2_in";
-                    let out_label = "store2_out";
-                    s.in_statistics.dump_statistics(in_label)?;
-                    s.out_statistics.dump_statistics(out_label)?;
-                    Ok(())
-                })?;
-                store3.with_mut_contents(|s| -> Result<()> {
-                    let in_label = "store3_in";
-                    let out_label = "store3_out";
-                    s.in_statistics.dump_statistics(in_label)?;
-                    s.out_statistics.dump_statistics(out_label)?;
-                    Ok(())
-                })?;
-            }
-        }
-    });
+    // // Command handling thread
+    // thread::spawn(move || -> Result<()> {
+    //     loop {
+    //         let mut buffer = String::new();
+    //         let _ = io::stdin().read_line(&mut buffer);
+    //         buffer.pop(); // erase newline
+    //         println!("Received command {:?}", buffer);
+    //         if buffer == "dump" {
+    //             println!("Dumping statistics to file");
+    //             store2.with_mut_contents(|s| -> Result<()> {
+    //                 let in_label = "store2_in";
+    //                 let out_label = "store2_out";
+    //                 s.in_statistics.dump_statistics(in_label)?;
+    //                 s.out_statistics.dump_statistics(out_label)?;
+    //                 Ok(())
+    //             })?;
+    //             store3.with_mut_contents(|s| -> Result<()> {
+    //                 let in_label = "store3_in";
+    //                 let out_label = "store3_out";
+    //                 s.in_statistics.dump_statistics(in_label)?;
+    //                 s.out_statistics.dump_statistics(out_label)?;
+    //                 Ok(())
+    //             })?;
+    //         }
+    //     }
+    // });
 
     let pipeline1 = rib_pipeline()?;
     let pipeline3 = switch_pipeline(
@@ -176,7 +180,14 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
                 }),
             )
         })?
+        .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
         .execute()
+}
+
+fn print_stats() {
+    let mut observer = YamlBuilder::new().build();
+    metrics::global().controller().observe(&mut observer);
+    println!("{}", observer.drain());
 }
 
 pub fn startup_route_lookup(gdp_name: GdpName) -> Option<Route> {
@@ -207,14 +218,15 @@ fn start_prod_server(
             .add_pipeline_to_port("eth1", move |q| {
                 install_gdp_pipeline(q, pipeline, store, "prod", node_addr)
             })?
-            .execute()?;
-        store.with_mut_contents(|s| -> Result<()> {
-            let in_label = "packets_in";
-            let out_label = "packets_out";
-            s.in_statistics.dump_statistics(in_label)?;
-            s.out_statistics.dump_statistics(out_label)?;
-            Ok(())
-        })
+            .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
+            .execute()
+        // store.with_mut_contents(|s| -> Result<()> {
+        //     let in_label = "packets_in";
+        //     let out_label = "packets_out";
+        //     s.in_statistics.dump_statistics(in_label)?;
+        //     s.out_statistics.dump_statistics(out_label)?;
+        //     Ok(())
+        // })
     }
 
     match mode {

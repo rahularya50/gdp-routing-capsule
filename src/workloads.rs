@@ -58,7 +58,7 @@ fn prep_packet(
 fn send_initial_packet(
     q: PortQueue,
     nic_name: &str,
-    store: Store,
+    _store: Store,
     src_ip: Ipv4Addr,
     switch_route: Route,
 ) -> () {
@@ -70,9 +70,9 @@ fn send_initial_packet(
                 "Sending out one-shot packet from NIC {:?}: {:?}",
                 nic_name, packet
             );
-            store.with_mut_contents(|store| {
-                store.out_statistics.record_packet(packet);
-            });
+            // store.with_mut_contents(|store| {
+            //     store.out_statistics.record_packet(packet);
+            // });
             Ok(())
         })
         .map(|packet| Ok(packet.deparse()))
@@ -112,12 +112,12 @@ pub fn start_client_server(config: RuntimeConfig, gdp_name: GdpName) -> Result<(
         .add_pipeline_to_port("eth1", move |q| {
             client_schedule(q, "client", store, src_route.ip)
         })?
-        .execute()?;
-    store.with_mut_contents(|s| -> Result<()> {
-        let in_label = "packets_in";
-        let out_label = "packets_out";
-        s.in_statistics.dump_statistics(in_label)?;
-        s.out_statistics.dump_statistics(out_label)?;
-        Ok(())
-    })
+        .execute()
+    // store.with_mut_contents(|s| -> Result<()> {
+    //     let in_label = "packets_in";
+    //     let out_label = "packets_out";
+    //     s.in_statistics.dump_statistics(in_label)?;
+    //     s.out_statistics.dump_statistics(out_label)?;
+    //     Ok(())
+    // })
 }

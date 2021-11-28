@@ -36,3 +36,5 @@ tokio-executor = { version = "=0.2.0-alpha.6", features = ["current-thread", "th
 tokio-net = { version = "=0.2.0-alpha.6", features = ["signal"] }
 tokio-timer = "=0.3.0-alpha.6"
 pin-project = "1.0.8"
+metrics-core = "0.5"
+metrics-observer-yaml = "0.1"
