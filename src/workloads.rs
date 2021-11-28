@@ -25,6 +25,7 @@ fn prep_packet(
     src_ip: Ipv4Addr,
     dst_mac: MacAddr,
     dst_ip: Ipv4Addr,
+    message: &str,
 ) -> Result<Gdp<Ipv4>> {
     let mut reply = reply.push::<Ethernet>()?;
     reply.set_src(src_mac);
@@ -44,8 +45,6 @@ fn prep_packet(
     reply.set_action(GdpAction::Forward);
     reply.set_dst(1);
 
-    let message = "Initial server outgoing!".as_bytes();
-
     let offset = reply.payload_offset();
     reply.mbuf_mut().extend(offset, message.len())?;
     reply.mbuf_mut().write_data_slice(offset, &message)?;
@@ -63,8 +62,9 @@ fn send_initial_packet(
     switch_route: Route,
 ) -> () {
     let src_mac = q.mac_addr();
-    batch::poll_fn(|| Mbuf::alloc_bulk(1).unwrap())
-        .map(move |packet| prep_packet(packet, src_mac, src_ip, switch_route.mac, switch_route.ip))
+    let msg = String::from_utf8(vec![b'A'; 1048576]).as_bytes();
+    batch::poll_fn(|| Mbuf::alloc_bulk(num_packets).unwrap())
+        .map(move |packet| prep_packet(packet, src_mac, src_ip, switch_route.mac, switch_route.ip, msg))
         .for_each(move |packet| {
             println!(
                 "Sending out one-shot packet from NIC {:?}: {:?}",
