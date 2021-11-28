@@ -4,6 +4,7 @@ use crate::gdp::GdpAction;
 use crate::kvs::{GdpName, Store};
 use crate::schedule::Schedule;
 use crate::startup_route_lookup;
+use crate::print_stats;
 use crate::Route;
 use anyhow::{anyhow, Result};
 use capsule::batch::{self, Batch, Pipeline};
