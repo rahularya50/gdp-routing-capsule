@@ -112,6 +112,7 @@ pub fn start_client_server(config: RuntimeConfig, gdp_name: GdpName) -> Result<(
         .add_pipeline_to_port("eth1", move |q| {
             client_schedule(q, "client", store, src_route.ip)
         })?
+        .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
         .execute()
     // store.with_mut_contents(|s| -> Result<()> {
     //     let in_label = "packets_in";
