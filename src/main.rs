@@ -207,7 +207,14 @@ fn start_prod_server(
             .add_pipeline_to_port("eth1", move |q| {
                 install_gdp_pipeline(q, pipeline, store, "prod", node_addr)
             })?
-            .execute()
+            .execute()?;
+        store.with_mut_contents(|s| -> Result<()> {
+            let in_label = "packets_in";
+            let out_label = "packets_out";
+            s.in_statistics.dump_statistics(in_label)?;
+            s.out_statistics.dump_statistics(out_label)?;
+            Ok(())
+        })
     }
 
     match mode {

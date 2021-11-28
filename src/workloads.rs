@@ -106,10 +106,18 @@ fn client_schedule(q: PortQueue, name: &str, store: Store, src_ip: Ipv4Addr) -> 
 }
 
 pub fn start_client_server(config: RuntimeConfig, gdp_name: GdpName) -> Result<()> {
+    let store = Store::new();
     let src_route = startup_route_lookup(gdp_name).ok_or(anyhow!("Invalid client GDPName!"))?;
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| {
-            client_schedule(q, "client", Store::new(), src_route.ip)
+            client_schedule(q, "client", store, src_route.ip)
         })?
-        .execute()
+        .execute()?;
+    store.with_mut_contents(|s| -> Result<()> {
+        let in_label = "packets_in";
+        let out_label = "packets_out";
+        s.in_statistics.dump_statistics(in_label)?;
+        s.out_statistics.dump_statistics(out_label)?;
+        Ok(())
+    })
 }
