@@ -48,7 +48,7 @@ impl GdpStatistics {
             .timestamp_millis()
             .try_into()
             .unwrap();
-        if current_time - self.start_time > (self.blocks.len() as u64) * self.block_width {
+        if current_time - self.start_time >= (self.blocks.len() as u64) * self.block_width {
             self.blocks.resize_with(
                 (((current_time - self.start_time) / self.block_width) + 2)
                     .try_into()
