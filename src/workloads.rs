@@ -19,13 +19,14 @@ use std::net::Ipv4Addr;
 use std::time::Duration;
 use tokio_timer::delay_for;
 
+const MSG: &[u8] = &[b'A'; 1048576];
+
 fn prep_packet(
     reply: Mbuf,
     src_mac: MacAddr,
     src_ip: Ipv4Addr,
     dst_mac: MacAddr,
-    dst_ip: Ipv4Addr,
-    message: &str,
+    dst_ip: Ipv4Addr
 ) -> Result<Gdp<Ipv4>> {
     let mut reply = reply.push::<Ethernet>()?;
     reply.set_src(src_mac);
@@ -45,6 +46,8 @@ fn prep_packet(
     reply.set_action(GdpAction::Forward);
     reply.set_dst(1);
 
+    let message = MSG;
+
     let offset = reply.payload_offset();
     reply.mbuf_mut().extend(offset, message.len())?;
     reply.mbuf_mut().write_data_slice(offset, &message)?;
@@ -62,9 +65,8 @@ fn send_initial_packet(
     switch_route: Route,
 ) -> () {
     let src_mac = q.mac_addr();
-    let msg = String::from_utf8(vec![b'A'; 1048576]).as_bytes();
     batch::poll_fn(|| Mbuf::alloc_bulk(num_packets).unwrap())
-        .map(move |packet| prep_packet(packet, src_mac, src_ip, switch_route.mac, switch_route.ip, msg))
+        .map(move |packet| prep_packet(packet, src_mac, src_ip, switch_route.mac, switch_route.ip))
         .for_each(move |packet| {
             println!(
                 "Sending out one-shot packet from NIC {:?}: {:?}",
