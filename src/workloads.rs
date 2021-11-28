@@ -55,15 +55,16 @@ fn prep_packet(
     Ok(reply)
 }
 
-fn send_initial_packet(
+fn send_initial_packets(
     q: PortQueue,
     nic_name: &str,
     store: Store,
     src_ip: Ipv4Addr,
     switch_route: Route,
+    num_packets: usize
 ) -> () {
     let src_mac = q.mac_addr();
-    batch::poll_fn(|| Mbuf::alloc_bulk(1).unwrap())
+    batch::poll_fn(|| Mbuf::alloc_bulk(num_packets).unwrap())
         .map(move |packet| prep_packet(packet, src_mac, src_ip, switch_route.mac, switch_route.ip))
         .for_each(move |packet| {
             println!(
@@ -79,6 +80,16 @@ fn send_initial_packet(
         .map(encrypt_gdp)
         .send(q)
         .run_once();
+}
+
+fn send_initial_packet(
+    q: PortQueue,
+    nic_name: &str,
+    store: Store,
+    src_ip: Ipv4Addr,
+    switch_route: Route
+) {
+    send_initial_packets(q, nic_name, store, src_ip, switch_route, 1);
 }
 
 pub fn dev_schedule(q: PortQueue, name: &str, store: Store) -> impl Pipeline + '_ {
@@ -102,6 +113,21 @@ fn client_schedule(q: PortQueue, name: &str, store: Store, src_ip: Ipv4Addr) -> 
         send_initial_packet(q.clone(), name, store, src_ip, switch_route);
         delay_for(Duration::from_millis(1000)).await;
         send_initial_packet(q.clone(), name, store, src_ip, switch_route);
+    })
+}
+
+fn spammy(q: PortQueue, name: &str, store: Store, src_ip: Ipv4Addr) -> impl Pipeline + '_ {
+    let switch_route = startup_route_lookup(2).unwrap();
+    Schedule::new(name, async move {
+        send_initial_packets(q.clone(), name, store, src_ip, switch_route, 10000);
+        delay_for(Duration::from_millis(1000)).await;
+        send_initial_packets(q.clone(), name, store, src_ip, switch_route, 10000);
+        delay_for(Duration::from_millis(1000)).await;
+        send_initial_packets(q.clone(), name, store, src_ip, switch_route, 10000);
+        delay_for(Duration::from_millis(1000)).await;
+        send_initial_packets(q.clone(), name, store, src_ip, switch_route, 10000);
+        delay_for(Duration::from_millis(1000)).await;
+        send_initial_packets(q.clone(), name, store, src_ip, switch_route, 10000);
     })
 }
 
