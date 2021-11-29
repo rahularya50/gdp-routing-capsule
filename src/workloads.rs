@@ -4,11 +4,9 @@ use crate::gdp::GdpAction;
 use crate::kvs::{GdpName, Store};
 use crate::schedule::Schedule;
 use crate::startup_route_lookup;
-use crate::print_stats;
-use crate::print_stats_diff;
+
+use crate::statistics::make_print_stats;
 use crate::Route;
-use std::sync::Mutex;
-use std::collections::HashMap;
 use anyhow::{anyhow, Result};
 use capsule::batch::{self, Batch, Pipeline};
 use capsule::config::RuntimeConfig;
@@ -19,7 +17,9 @@ use capsule::packets::{Ethernet, Packet};
 use capsule::Mbuf;
 use capsule::PortQueue;
 use capsule::Runtime;
+
 use std::net::Ipv4Addr;
+
 use std::time::Duration;
 use tokio_timer::delay_for;
 
@@ -50,7 +50,7 @@ fn prep_packet(
     reply.set_action(GdpAction::Forward);
     reply.set_dst(3);
 
-    let message = MSG; 
+    let message = MSG;
 
     let offset = reply.payload_offset();
     reply.mbuf_mut().extend(offset, message.len())?;
@@ -63,16 +63,16 @@ fn prep_packet(
 
 fn send_initial_packets(
     q: PortQueue,
-    nic_name: &str,
+    _nic_name: &str,
     _store: Store,
     src_ip: Ipv4Addr,
     switch_route: Route,
-    num_packets: usize
+    num_packets: usize,
 ) -> () {
     let src_mac = q.mac_addr();
     batch::poll_fn(|| Mbuf::alloc_bulk(num_packets).unwrap())
         .map(move |packet| prep_packet(packet, src_mac, src_ip, switch_route.mac, switch_route.ip))
-        .for_each(move |packet| {
+        .for_each(move |_packet| {
             //println!(
             //    "Sending out one-shot packet from NIC {:?}: {:?}",
             //    nic_name, packet
@@ -93,7 +93,7 @@ fn send_initial_packet(
     nic_name: &str,
     store: Store,
     src_ip: Ipv4Addr,
-    switch_route: Route
+    switch_route: Route,
 ) {
     send_initial_packets(q, nic_name, store, src_ip, switch_route, 1);
 }
@@ -135,12 +135,13 @@ fn spammy(q: PortQueue, name: &str, store: Store, src_ip: Ipv4Addr) -> impl Pipe
 pub fn start_client_server(config: RuntimeConfig, gdp_name: GdpName) -> Result<()> {
     let store = Store::new();
     let src_route = startup_route_lookup(gdp_name).ok_or(anyhow!("Invalid client GDPName!"))?;
-    let mut stats_map = Mutex::new(HashMap::new());
     Runtime::build(config)?
-        .add_pipeline_to_port("eth1", move |q| {
-            spammy(q, "client", store, src_route.ip)
-        })?
-        .add_periodic_task_to_core(0, move || print_stats_diff(&mut stats_map.lock().unwrap()), Duration::from_secs(1))?
+        .add_pipeline_to_port("eth1", move |q| spammy(q, "client", store, src_route.ip))?
+        .add_periodic_task_to_core(
+            0,
+            make_print_stats(),
+            Duration::from_secs(1),
+        )?
         .execute()
     // store.with_mut_contents(|s| -> Result<()> {
     //     let in_label = "packets_in";
