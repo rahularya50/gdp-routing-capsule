@@ -126,7 +126,6 @@ fn spammy(q: PortQueue, name: &str, store: Store, src_ip: Ipv4Addr) -> impl Pipe
             send_initial_packets(q.clone(), name, store, src_ip, switch_route, 36);
             delay_for(Duration::from_micros(1));
         }
-
     })
 }
 
