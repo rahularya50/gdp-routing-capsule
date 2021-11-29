@@ -23,8 +23,11 @@ use capsule::{PortQueue, Runtime};
 use clap::{arg_enum, clap_app, value_t};
 use metrics_core::{Builder, Drain, Observe};
 use metrics_observer_yaml::YamlBuilder;
+use metrics_runtime::Measurement::Counter;
 use rib::Route;
+use std::collections::HashMap;
 use std::fs;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use std::net::Ipv4Addr;
@@ -119,6 +122,8 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
     let name2 = "sw1";
     let name3 = "sw2";
 
+    let mut stats_map = Mutex::new(HashMap::new());
+
     // // Command handling thread
     // thread::spawn(move || -> Result<()> {
     //     loop {
@@ -180,7 +185,11 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
                 }),
             )
         })?
-        .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
+        .add_periodic_task_to_core(
+            0,
+            move || print_stats_diff(&mut stats_map.lock().unwrap()),
+            Duration::from_secs(1),
+        )?
         .execute()
 }
 
@@ -190,6 +199,32 @@ fn print_stats() {
     println!("{}", observer.drain());
 }
 
+fn print_stats_diff(m: &mut HashMap<String, u64>) {
+    let mut observer = YamlBuilder::new().build();
+    metrics::global().controller().observe(&mut observer);
+    let snapshot = metrics::global().controller().snapshot();
+    println!("---------------------------");
+    snapshot.into_measurements().iter().for_each(|(k, v)| {
+        let (name, labels) = k.to_owned().into_parts();
+        let labels = format!(
+            "{} {}",
+            name,
+            labels
+                .iter()
+                .map(|label| format!("{}={}", label.key(), label.value()))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        if let Counter(value) = v {
+            println!(
+                "{}: {}",
+                labels,
+                value - m.insert(labels.clone(), *value).unwrap_or(0)
+            );
+        }
+    });
+    // println!("{}", observer.drain());
+}
 pub fn startup_route_lookup(gdp_name: GdpName) -> Option<Route> {
     // FIXME: this is an awful hack, we shouldn't need to read the RIB to get our IP addr!
     load_routes()

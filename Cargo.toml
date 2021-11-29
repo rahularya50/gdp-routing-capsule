@@ -38,3 +38,4 @@ tokio-timer = "=0.3.0-alpha.6"
 pin-project = "1.0.8"
 metrics-core = "0.5"
 metrics-observer-yaml = "0.1"
+metrics-runtime = { version = "0.13", default-features = false }

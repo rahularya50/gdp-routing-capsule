@@ -5,7 +5,10 @@ use crate::kvs::{GdpName, Store};
 use crate::schedule::Schedule;
 use crate::startup_route_lookup;
 use crate::print_stats;
+use crate::print_stats_diff;
 use crate::Route;
+use std::sync::Mutex;
+use std::collections::HashMap;
 use anyhow::{anyhow, Result};
 use capsule::batch::{self, Batch, Pipeline};
 use capsule::config::RuntimeConfig;
@@ -45,7 +48,7 @@ fn prep_packet(
 
     let mut reply = reply.push::<Gdp<Ipv4>>()?;
     reply.set_action(GdpAction::Forward);
-    reply.set_dst(1);
+    reply.set_dst(3);
 
     let message = MSG; 
 
@@ -132,11 +135,12 @@ fn spammy(q: PortQueue, name: &str, store: Store, src_ip: Ipv4Addr) -> impl Pipe
 pub fn start_client_server(config: RuntimeConfig, gdp_name: GdpName) -> Result<()> {
     let store = Store::new();
     let src_route = startup_route_lookup(gdp_name).ok_or(anyhow!("Invalid client GDPName!"))?;
+    let mut stats_map = Mutex::new(HashMap::new());
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| {
             spammy(q, "client", store, src_route.ip)
         })?
-        .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
+        .add_periodic_task_to_core(0, move || print_stats_diff(&mut stats_map.lock().unwrap()), Duration::from_secs(1))?
         .execute()
     // store.with_mut_contents(|s| -> Result<()> {
     //     let in_label = "packets_in";
