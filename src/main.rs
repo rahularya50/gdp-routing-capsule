@@ -73,7 +73,7 @@ fn install_gdp_pipeline<'a>(
                     .forwarding_table
                     .insert(packet.src(), packet.envelope().envelope().envelope().src());
             });
-            println!("Parsed gdp packet in NIC {:?}: {:?}", nic_name, packet);
+            //println!("Parsed gdp packet in NIC {:?}: {:?}", nic_name, packet);
 
             // Record incoming packet statistics
             // store.with_mut_contents(|store| {
@@ -86,7 +86,7 @@ fn install_gdp_pipeline<'a>(
             gdp_pipeline,
         )
         .for_each(move |packet| {
-            println!("Sent gdp packet in NIC {:?}: {:?}", nic_name, packet);
+            //println!("Sent gdp packet in NIC {:?}: {:?}", nic_name, packet);
 
             // Record outgoing packet statistics
             // store.with_mut_contents(|store| {
