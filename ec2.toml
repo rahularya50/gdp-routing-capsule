@@ -1,6 +1,7 @@
 app_name = "ping4d"
 master_core = 0
 duration = 50
+cores = [1]
 
 [mempool]
     capacity = 65535
@@ -9,6 +10,6 @@ duration = 50
 [[ports]]
     name = "eth1"
     device = "0000:00:06.0"
-    cores = [0]
-    rxd = 512
-    txd = 512
+    cores = [1]
+    rxd = 1024
+    txd = 1024

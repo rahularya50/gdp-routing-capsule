@@ -20,6 +20,8 @@ use std::net::Ipv4Addr;
 use std::time::Duration;
 use tokio_timer::delay_for;
 
+const MSG: &[u8] = &[b'A'; 772];
+
 fn prep_packet(
     reply: Mbuf,
     src_mac: MacAddr,
@@ -45,7 +47,7 @@ fn prep_packet(
     reply.set_action(GdpAction::Forward);
     reply.set_dst(1);
 
-    let message = "Initial server outgoing!".as_bytes();
+    let message = MSG; 
 
     let offset = reply.payload_offset();
     reply.mbuf_mut().extend(offset, message.len())?;
@@ -56,21 +58,22 @@ fn prep_packet(
     Ok(reply)
 }
 
-fn send_initial_packet(
+fn send_initial_packets(
     q: PortQueue,
     nic_name: &str,
     _store: Store,
     src_ip: Ipv4Addr,
     switch_route: Route,
+    num_packets: usize
 ) -> () {
     let src_mac = q.mac_addr();
-    batch::poll_fn(|| Mbuf::alloc_bulk(1).unwrap())
+    batch::poll_fn(|| Mbuf::alloc_bulk(num_packets).unwrap())
         .map(move |packet| prep_packet(packet, src_mac, src_ip, switch_route.mac, switch_route.ip))
         .for_each(move |packet| {
-            println!(
-                "Sending out one-shot packet from NIC {:?}: {:?}",
-                nic_name, packet
-            );
+            //println!(
+            //    "Sending out one-shot packet from NIC {:?}: {:?}",
+            //    nic_name, packet
+            //);
             // store.with_mut_contents(|store| {
             //     store.out_statistics.record_packet(packet);
             // });
@@ -80,6 +83,16 @@ fn send_initial_packet(
         .map(encrypt_gdp)
         .send(q)
         .run_once();
+}
+
+fn send_initial_packet(
+    q: PortQueue,
+    nic_name: &str,
+    store: Store,
+    src_ip: Ipv4Addr,
+    switch_route: Route
+) {
+    send_initial_packets(q, nic_name, store, src_ip, switch_route, 1);
 }
 
 pub fn dev_schedule(q: PortQueue, name: &str, store: Store) -> impl Pipeline + '_ {
@@ -106,12 +119,23 @@ fn client_schedule(q: PortQueue, name: &str, store: Store, src_ip: Ipv4Addr) -> 
     })
 }
 
+fn spammy(q: PortQueue, name: &str, store: Store, src_ip: Ipv4Addr) -> impl Pipeline + '_ {
+    let switch_route = startup_route_lookup(2).unwrap();
+    Schedule::new(name, async move {
+        loop {
+            send_initial_packets(q.clone(), name, store, src_ip, switch_route, 36);
+            delay_for(Duration::from_micros(1));
+        }
+
+    })
+}
+
 pub fn start_client_server(config: RuntimeConfig, gdp_name: GdpName) -> Result<()> {
     let store = Store::new();
     let src_route = startup_route_lookup(gdp_name).ok_or(anyhow!("Invalid client GDPName!"))?;
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| {
-            client_schedule(q, "client", store, src_route.ip)
+            spammy(q, "client", store, src_route.ip)
         })?
         .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
         .execute()
