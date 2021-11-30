@@ -11,6 +11,7 @@ use anyhow::{anyhow, Result};
 use capsule::batch::{self, Batch, Pipeline};
 use capsule::config::RuntimeConfig;
 use capsule::net::MacAddr;
+use crate::dump_history;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
@@ -134,20 +135,16 @@ fn spammy(q: PortQueue, name: &str, store: Store, src_ip: Ipv4Addr) -> impl Pipe
 
 pub fn start_client_server(config: RuntimeConfig, gdp_name: GdpName) -> Result<()> {
     let store = Store::new();
+    let (print_stats, history_map) = make_print_stats();
     let src_route = startup_route_lookup(gdp_name).ok_or(anyhow!("Invalid client GDPName!"))?;
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| spammy(q, "client", store, src_route.ip))?
         .add_periodic_task_to_core(
             0,
-            make_print_stats(),
+            print_stats,
             Duration::from_secs(1),
         )?
-        .execute()
-    // store.with_mut_contents(|s| -> Result<()> {
-    //     let in_label = "packets_in";
-    //     let out_label = "packets_out";
-    //     s.in_statistics.dump_statistics(in_label)?;
-    //     s.out_statistics.dump_statistics(out_label)?;
-    //     Ok(())
-    // })
+        .execute()?;
+   
+    let x = dump_history(&(*history_map.lock().unwrap())); x
 }

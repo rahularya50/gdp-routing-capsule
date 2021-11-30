@@ -8,22 +8,20 @@ use crate::pipeline::GdpPipeline;
 use crate::rib::load_routes;
 use crate::rib::rib_pipeline;
 use crate::rib::test_signatures;
-use crate::statistics::make_print_stats;
+use crate::statistics::{dump_history, make_print_stats};
 use crate::switch::switch_pipeline;
 use crate::workloads::dev_schedule;
 use crate::workloads::start_client_server;
 use anyhow::Result;
 use capsule::batch::{Batch, Pipeline, Poll};
 use capsule::config::RuntimeConfig;
-use capsule::metrics;
+
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::{PortQueue, Runtime};
 use clap::{arg_enum, clap_app, value_t};
-use metrics_core::{Builder, Drain, Observe};
-use metrics_observer_yaml::YamlBuilder;
 
 use rib::Route;
 
@@ -123,33 +121,6 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
     let name2 = "sw1";
     let name3 = "sw2";
 
-    // // Command handling thread
-    // thread::spawn(move || -> Result<()> {
-    //     loop {
-    //         let mut buffer = String::new();
-    //         let _ = io::stdin().read_line(&mut buffer);
-    //         buffer.pop(); // erase newline
-    //         println!("Received command {:?}", buffer);
-    //         if buffer == "dump" {
-    //             println!("Dumping statistics to file");
-    //             store2.with_mut_contents(|s| -> Result<()> {
-    //                 let in_label = "store2_in";
-    //                 let out_label = "store2_out";
-    //                 s.in_statistics.dump_statistics(in_label)?;
-    //                 s.out_statistics.dump_statistics(out_label)?;
-    //                 Ok(())
-    //             })?;
-    //             store3.with_mut_contents(|s| -> Result<()> {
-    //                 let in_label = "store3_in";
-    //                 let out_label = "store3_out";
-    //                 s.in_statistics.dump_statistics(in_label)?;
-    //                 s.out_statistics.dump_statistics(out_label)?;
-    //                 Ok(())
-    //             })?;
-    //         }
-    //     }
-    // });
-
     let pipeline1 = rib_pipeline()?;
     let pipeline3 = switch_pipeline(
         store3,
@@ -158,6 +129,9 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
             mac: MacAddr::new(0x02, 0x00, 0x00, 0xFF, 0xFF, 0x00),
         },
     )?;
+
+    let (print_stats, history_map) = make_print_stats();
+
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| {
             install_gdp_pipeline(
@@ -184,20 +158,12 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
                 }),
             )
         })?
-        .add_periodic_task_to_core(
-            0,
-            make_print_stats(),
-            Duration::from_secs(1),
-        )?
-        .execute()
-}
+        .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
+        .execute()?;
 
-fn print_stats() {
-    let mut observer = YamlBuilder::new().build();
-    metrics::global().controller().observe(&mut observer);
-    println!("{}", observer.drain());
+    let x = dump_history(&(*history_map.lock().unwrap()));
+    x
 }
-
 
 pub fn startup_route_lookup(gdp_name: GdpName) -> Option<Route> {
     // FIXME: this is an awful hack, we shouldn't need to read the RIB to get our IP addr!
@@ -223,19 +189,17 @@ fn start_prod_server(
         pipeline: T,
         node_addr: Option<Route>,
     ) -> Result<()> {
+        let (print_stats, history_map) = make_print_stats();
+
         Runtime::build(config)?
             .add_pipeline_to_port("eth1", move |q| {
                 install_gdp_pipeline(q, pipeline, store, "prod", node_addr)
             })?
-            .add_periodic_task_to_core(0, make_print_stats(), Duration::from_secs(1))?
-            .execute()
-        // store.with_mut_contents(|s| -> Result<()> {
-        //     let in_label = "packets_in";
-        //     let out_label = "packets_out";
-        //     s.in_statistics.dump_statistics(in_label)?;
-        //     s.out_statistics.dump_statistics(out_label)?;
-        //     Ok(())
-        // })
+            .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
+            .execute()?;
+
+        let x = dump_history(&(*history_map.lock().unwrap()));
+        x
     }
 
     match mode {
