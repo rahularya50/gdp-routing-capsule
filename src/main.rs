@@ -121,7 +121,7 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
     let name2 = "sw1";
     let name3 = "sw2";
 
-    let pipeline1 = rib_pipeline()?;
+    let pipeline1 = rib_pipeline(false)?;
     let pipeline3 = switch_pipeline(
         store3,
         Route {

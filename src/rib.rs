@@ -96,23 +96,15 @@ fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes, debug: bool) -> Result<
     let mut out = out.push::<Gdp<Ipv4>>()?;
     out.set_action(GdpAction::RibReply);
     out.set_key(packet.key());
-    Option<&Route> result = routes.routes.get(&packet.key());
+    let mut result: Option<&Route> = routes.routes.get(&packet.key());
     if result.is_none() {
         if debug {
-            result = Some(&route.default);
+            result = Some(&routes.default);
         } else {
-            return anyhow!("GDPName not found!");
+            return Err(anyhow!("GDPName not found!"));
         }
     }
     out.set_value(result.unwrap().ip.into());
-    // out.set_value(
-    //     routes
-    //         .routes
-    //         .get(&packet.key())
-    //         .ok_or(anyhow!("GDPName not found!"))?
-    //         .ip
-    //         .into(),
-    // );
 
     let message = "RIB Reply!".as_bytes();
     let offset = out.payload_offset();
