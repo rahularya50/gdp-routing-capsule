@@ -70,7 +70,7 @@ pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store) -> Result<()> {
     Ok(())
 }
 
-fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes) -> Result<Gdp<Ipv4>> {
+fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes, debug: bool) -> Result<Gdp<Ipv4>> {
     let dtls = packet.envelope();
     let udp = dtls.envelope();
     let ipv4 = udp.envelope();
@@ -94,14 +94,15 @@ fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes) -> Result<Gdp<Ipv4>> {
     let mut out = out.push::<Gdp<Ipv4>>()?;
     out.set_action(GdpAction::RibReply);
     out.set_key(packet.key());
-    out.set_value(
-        routes
-            .routes
-            .get(&packet.key())
-            .ok_or(anyhow!("GDPName not found!"))?
-            .ip
-            .into(),
-    );
+    let mut result: Option<&Route> = routes.routes.get(&packet.key());
+    if result.is_none() {
+        if debug {
+            result = Some(&routes.default);
+        } else {
+            return Err(anyhow!("GDPName not found!"));
+        }
+    }
+    out.set_value(result.unwrap().ip.into());
 
     let message = "RIB Reply!".as_bytes();
     let offset = out.payload_offset();
@@ -112,10 +113,10 @@ fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes) -> Result<Gdp<Ipv4>> {
     Ok(out)
 }
 
-pub fn rib_pipeline(routes: &'static Routes) -> impl GdpPipeline {
+pub fn rib_pipeline(debug: bool, routes: &'static Routes) -> impl GdpPipeline {
     pipeline! {
         GdpAction::RibGet => |group| {
-            group.replace(move |packet| handle_rib_query(packet, routes))
+            group.replace(move |packet| handle_rib_query(packet, routes, debug))
         }
         _ => |group| {group.filter(|_| false)}
     }
@@ -125,11 +126,13 @@ pub fn rib_pipeline(routes: &'static Routes) -> impl GdpPipeline {
 struct SerializedRoutes {
     routes: HashMap<String, Route>,
     rib: Route,
+    default: Route
 }
 
 pub struct Routes {
     pub routes: HashMap<GdpName, Route>,
     pub rib: Route,
+    pub default: Route
 }
 #[derive(Clone, Copy, Deserialize)]
 pub struct Route {
@@ -148,6 +151,7 @@ pub fn load_routes() -> Result<Routes> {
             .map(|it| (it.0.parse::<GdpName>().unwrap(), it.1.to_owned()))
             .collect(),
         rib: serialized.rib,
+        default: serialized.default
     })
 }
 

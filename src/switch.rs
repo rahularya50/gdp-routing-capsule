@@ -85,7 +85,7 @@ pub fn switch_pipeline(
                     true => |group| {
                         group.filter_map(move |packet| {
                             let ip = find_destination(&packet, store).ok_or(anyhow!("can't find the destination"))?;
-                            let mac = routes.routes.get(&packet.dst()).unwrap().mac; // FIXME - this is a hack!!!
+                            let mac = routes.routes.get(&packet.dst()).unwrap_or(&routes.default).mac; // FIXME - this is a hack!!!
                             forward_gdp(packet, Route {ip, mac})
                         })
                     }

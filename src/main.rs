@@ -112,7 +112,7 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
         .add_pipeline_to_port("eth1", move |q| {
             install_gdp_pipeline(
                 q.clone(),
-                rib_pipeline(routes),
+                rib_pipeline(false, routes),
                 Store::new(),
                 name1,
                 Some(Route {
@@ -162,18 +162,20 @@ fn start_prod_server(
     config: RuntimeConfig,
     mode: ProdMode,
     gdp_name: Option<GdpName>,
+    debug: bool,
 ) -> Result<()> {
-    fn create_rib(_store: Store, routes: &'static Routes) -> impl GdpPipeline {
-        rib_pipeline(routes)
+    fn create_rib(_store: Store, routes: &'static Routes, debug: bool) -> impl GdpPipeline {
+        rib_pipeline(debug, routes)
     }
 
-    fn create_switch(store: Store, routes: &'static Routes) -> impl GdpPipeline {
+    fn create_switch(store: Store, routes: &'static Routes, debug: bool) -> impl GdpPipeline {
         switch_pipeline(store, routes, routes.rib)
     }
 
     fn start<T: GdpPipeline + 'static>(
         config: RuntimeConfig,
         gdp_name: Option<GdpName>,
+        debug: bool,
         pipeline: fn(Store, &'static Routes) -> T,
     ) -> Result<()> {
         let node_addr = gdp_name.map(startup_route_lookup).flatten();
@@ -194,8 +196,8 @@ fn start_prod_server(
     }
 
     match mode {
-        ProdMode::Router => start(config, gdp_name, create_rib),
-        ProdMode::Switch => start(config, gdp_name, create_switch),
+        ProdMode::Router => start(config, gdp_name, debug, create_rib),
+        ProdMode::Switch => start(config, gdp_name, debug, create_switch),
     }
 }
 
@@ -215,6 +217,7 @@ fn main() -> Result<()> {
         requires_if("switch", "name")
         "The type of this node")
         (@arg name: -n --name +takes_value "The GDPName of this node (used for packet filtering)")
+        (@arg debug: -d --debug !takes_value "Debug Mode: For Router mode, send default response even when GDP Name is invalid")
     )
     .get_matches();
 
@@ -233,8 +236,8 @@ fn main() -> Result<()> {
 
     match mode {
         Mode::Dev => start_dev_server(config),
-        Mode::Router => start_prod_server(config, ProdMode::Router, gdp_name.ok()),
-        Mode::Switch => start_prod_server(config, ProdMode::Switch, Some(gdp_name?)),
+        Mode::Router => start_prod_server(config, ProdMode::Router, gdp_name.ok(), matches.is_present("debug")),
+        Mode::Switch => start_prod_server(config, ProdMode::Switch, Some(gdp_name?), matches.is_present("debug")),
         Mode::Client => start_client_server(config, gdp_name?),
     }
 }
