@@ -53,7 +53,7 @@ pub fn make_print_stats() -> (impl Fn(), Arc<Mutex<HashMap<String, Vec<u64>>>>) 
 pub fn dump_history(map: &HashMap<String, Vec<u64>>) -> Result<()> {
     // Dump statistics to a statistics.csv
     
-    let file = File::create("statistics.csv")?;
+    let file = File::create("statistics.tsv")?;
     let mut file = LineWriter::new(file);
 
     // Write all the headers
@@ -65,7 +65,7 @@ pub fn dump_history(map: &HashMap<String, Vec<u64>>) -> Result<()> {
     map_keys.sort();
 
     file.write_all(
-        (map_keys.join(",") + "\n").as_bytes()
+        (map_keys.join("\t") + "\n").as_bytes()
     )?;
     
     // now write all the values
@@ -74,7 +74,7 @@ pub fn dump_history(map: &HashMap<String, Vec<u64>>) -> Result<()> {
     for i in 0..upto {
         let vals = map_keys.iter().map(|k| map.get(*k).map(|vec| vec.get(i).unwrap_or(&0)).unwrap_or(&0).to_string()).collect::<Vec<_>>();
         file.write_all(
-            (vals.join(",") + "\n").as_bytes()
+            (vals.join("\t") + "\n").as_bytes()
         )?;
     }
     file.flush()?;
