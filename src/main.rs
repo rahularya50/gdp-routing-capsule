@@ -168,7 +168,7 @@ fn start_prod_server(
         rib_pipeline(debug, routes)
     }
 
-    fn create_switch(store: Store, routes: &'static Routes, debug: bool) -> impl GdpPipeline {
+    fn create_switch(store: Store, routes: &'static Routes, _debug: bool) -> impl GdpPipeline {
         switch_pipeline(store, routes, routes.rib)
     }
 
@@ -176,7 +176,7 @@ fn start_prod_server(
         config: RuntimeConfig,
         gdp_name: Option<GdpName>,
         debug: bool,
-        pipeline: fn(Store, &'static Routes) -> T,
+        pipeline: fn(Store, &'static Routes, bool) -> T,
     ) -> Result<()> {
         let node_addr = gdp_name.map(startup_route_lookup).flatten();
 
@@ -187,7 +187,7 @@ fn start_prod_server(
         Runtime::build(config)?
             .add_pipeline_to_port("eth1", move |q| {
                 let store = store.sync();
-                install_gdp_pipeline(q, pipeline(store, routes), store, "prod", node_addr)
+                install_gdp_pipeline(q, pipeline(store, routes, debug), store, "prod", node_addr)
             })?
             .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
             .execute()?;
@@ -236,8 +236,18 @@ fn main() -> Result<()> {
 
     match mode {
         Mode::Dev => start_dev_server(config),
-        Mode::Router => start_prod_server(config, ProdMode::Router, gdp_name.ok(), matches.is_present("debug")),
-        Mode::Switch => start_prod_server(config, ProdMode::Switch, Some(gdp_name?), matches.is_present("debug")),
+        Mode::Router => start_prod_server(
+            config,
+            ProdMode::Router,
+            gdp_name.ok(),
+            matches.is_present("debug"),
+        ),
+        Mode::Switch => start_prod_server(
+            config,
+            ProdMode::Switch,
+            Some(gdp_name?),
+            matches.is_present("debug"),
+        ),
         Mode::Client => start_client_server(config, gdp_name?),
     }
 }
