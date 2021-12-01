@@ -230,7 +230,7 @@ fn main() -> Result<()> {
         requires_if("switch", "name")
         "The type of this node")
         (@arg name: -n --name +takes_value "The GDPName of this node (used for packet filtering)")
-        (@arg name: -d --debug !takes_value "Debug Mode: For Router mode, send default response even when GDP Name is invalid")
+        (@arg debug: -d --debug !takes_value "Debug Mode: For Router mode, send default response even when GDP Name is invalid")
     )
     .get_matches();
 
