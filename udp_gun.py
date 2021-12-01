@@ -1,4 +1,6 @@
 import socket
+import click
+import time
 
 SOURCE_PORT = 27182
 
@@ -17,6 +19,7 @@ FPING = b"\x05"
 KEY = b"\x24" * 32
 VALUE = b"\x36" * 32
 
+
 def str_to_mac(s):
     """
     Convert a MAC address string to 6 byte-octets
@@ -25,38 +28,77 @@ def str_to_mac(s):
     """
     res = []
     for i in range(6):
-        first, second = int("0x"+s[i*2],16), int("0x"+s[i*2+1],16)
-        res.append(((first << 4) | second).to_bytes(1, byteorder='big'))
+        first, second = int("0x" + s[i * 2], 16), int("0x" + s[i * 2 + 1], 16)
+        res.append(((first << 4) | second).to_bytes(1, byteorder="big"))
     return b"".join(res)
 
+
 def str_to_ip(s):
-    return b"".join([(int(x)).to_bytes(1,byteorder='big') for x in s.split(".")])
+    return b"".join([(int(x)).to_bytes(1, byteorder="big") for x in s.split(".")])
+
 
 def build_message(action, key, value, payload=DEFAULT_PAYLOAD):
     return MAGIC_BYTES + action + key + value + payload
 
 
-s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-# s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-s.bind(("", SOURCE_PORT))
+@click.group()
+def cli():
+    pass
 
 
-mac_payload = str_to_mac("020000FFFF00")
-ip_payload = str_to_ip("10.100.1.10")
-forge_payload = mac_payload + ip_payload
-s.sendto(build_message(FPING, KEY, VALUE, payload=forge_payload), (TARGET_IP, TARGET_PORT))
+@cli.command()
+def gdp_test():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    # s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    s.bind(("", SOURCE_PORT))
 
-# s.sendto(build_message(GET, KEY, VALUE), (TARGET_IP, TARGET_PORT))
-# received_data, origin = s.recvfrom(1024)
+    mac_payload = str_to_mac("020000FFFF00")
+    ip_payload = str_to_ip("10.100.1.10")
+    forge_payload = mac_payload + ip_payload
+    s.sendto(
+        build_message(FPING, KEY, VALUE, payload=forge_payload),
+        (TARGET_IP, TARGET_PORT),
+    )
 
-# magic, action, key, value, payload = (
-#     received_data[:2],
-#     received_data[2:3],
-#     received_data[3:35],
-#     received_data[35:67],
-#     received_data[67:],
-# )
+    # s.sendto(build_message(GET, KEY, VALUE), (TARGET_IP, TARGET_PORT))
+    # received_data, origin = s.recvfrom(1024)
 
-# assert magic == MAGIC_BYTES
+    # magic, action, key, value, payload = (
+    #     received_data[:2],
+    #     received_data[2:3],
+    #     received_data[3:35],
+    #     received_data[35:67],
+    #     received_data[67:],
+    # )
 
-# print(action, key, value, payload)
+    # assert magic == MAGIC_BYTES
+
+    # print(action, key, value, payload)
+
+
+@cli.command()
+@click.option("--num-packets", default=1e5)
+@click.option("--packet-size", default=128)
+@click.option("--dst-ip", required=True)
+def transmit(num_packets, packet_size, dst_ip):
+    fd = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    fd.bind(("", SOURCE_PORT))  # select source port to reduce nondeterminism
+    fd.connect((dst_ip, SOURCE_PORT))
+    start_time = time.time()
+    remaining_packets = num_packets
+    while remaining_packets:
+        to_send = min(remaining_packets, 1024)
+        fd.sendmmsg(["\x00" * packet_size] * to_send)
+        remaining_packets -= to_send
+    stop_time = time.time()
+
+    elapsed_time = stop_time - start_time
+
+    print(
+        f"{num_packets} packets sent in {elapsed_time} seconds",
+        f"({num_packets / elapsed_time} pps, {num_packets * packet_size / elapsed_time} bytes/second",
+    )
+
+
+if __name__ == "__main__":
+    cli()

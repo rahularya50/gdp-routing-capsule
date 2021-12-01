@@ -8,6 +8,7 @@ use crate::pipeline::GdpPipeline;
 use crate::rib::create_rib_request;
 use crate::rib::handle_rib_reply;
 use crate::rib::Routes;
+use crate::GdpPipelineBuilder;
 use crate::Route;
 use anyhow::anyhow;
 use anyhow::Result;
@@ -19,8 +20,8 @@ use capsule::packets::Udp;
 use capsule::Mbuf;
 use std::net::Ipv4Addr;
 
-fn find_destination(gdp: &Gdp<Ipv4>, store: Store) -> Option<Ipv4Addr> {
-    store.with_contents(|store| store.forwarding_table.get(&gdp.dst()).cloned())
+fn find_destination(gdp: &Gdp<Ipv4>, store: &Store) -> Option<Ipv4Addr> {
+    store.forwarding_table.get(&gdp.dst()).cloned()
 }
 
 fn bounce_udp(udp: &mut Udp<Ipv4>) {
@@ -72,36 +73,38 @@ fn bounce_gdp(mut gdp: Gdp<Ipv4>) -> Result<Gdp<Ipv4>> {
     Ok(gdp)
 }
 
-pub fn switch_pipeline(store: Store, rib_route: Route) -> Result<impl GdpPipeline + Copy> {
-    let routes: &Routes = Box::leak(Box::new(load_routes()?));
-    Ok(pipeline! {
-        GdpAction::Forward => |group| {
-            group.group_by(
-                move |packet| find_destination(packet, store).is_some(),
-                pipeline! {
-                    true => |group| {
-                        group.filter_map(move |packet| {
-                            let ip = find_destination(&packet, store).ok_or(anyhow!("can't find the destination"))?;
-                            let mac = routes.routes.get(&packet.dst()).unwrap().mac; // FIXME - this is a hack!!!
-                            forward_gdp(packet, Route {ip, mac})
-                        })
-                    }
-                    false => |group| {
-                        group
-                        .map(bounce_gdp)
-                        .inject(move |packet| {
-                            let src_ip = packet.envelope().envelope().envelope().src();
-                            let src_mac = packet.envelope().envelope().envelope().envelope().src();
-                            println!("Querying RIB for destination {:?}", packet.dst());
-                            create_rib_request(Mbuf::new()?, packet.dst(), src_mac, src_ip, rib_route)
-                        })
-                    }
-                })
-        }
-        GdpAction::RibReply => |group| {
-            group.for_each(move |packet| handle_rib_reply(packet, store))
-                .filter(|_| false)
-        }
-        _ => |group| {group.filter(|_| false)}
+pub fn switch_pipeline(rib_route: Route) -> Result<impl GdpPipelineBuilder> {
+    let routes: &'static Routes = Box::leak(Box::new(load_routes()?));
+    Ok(move |store| {
+        Box::new(pipeline! {
+            GdpAction::Forward => |group| {
+                group.group_by(
+                    move |packet| find_destination(packet, &store).is_some(),
+                    pipeline! {
+                        true => |group| {
+                            group.filter_map(move |packet| {
+                                let ip = find_destination(&packet, &store).ok_or(anyhow!("can't find the destination"))?;
+                                let mac = routes.routes.get(&packet.dst()).ok_or(anyhow!("unknown dst MAC addr"))?.mac; // FIXME - this is a hack!!!
+                                forward_gdp(packet, Route {ip, mac})
+                            })
+                        }
+                        false => |group| {
+                            group
+                            .map(bounce_gdp)
+                            .inject(move |packet| {
+                                let src_ip = packet.envelope().envelope().envelope().src();
+                                let src_mac = packet.envelope().envelope().envelope().envelope().src();
+                                println!("Querying RIB for destination {:?}", packet.dst());
+                                create_rib_request(Mbuf::new()?, packet.dst(), src_mac, src_ip, rib_route)
+                            })
+                        }
+                    })
+            }
+            GdpAction::RibReply => |group| {
+                group.for_each(move |packet| handle_rib_reply(packet, &store))
+                    .filter(|_| false)
+            }
+            _ => |group| {group.filter(|_| false)}
+        }) as _
     })
 }

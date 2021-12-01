@@ -46,6 +46,9 @@ mod statistics;
 mod switch;
 mod workloads;
 
+pub trait GdpPipelineBuilder: Fn(&Store) -> Box<dyn GdpPipeline> {}
+impl<T: Fn(&Store) -> Box<dyn GdpPipeline>> GdpPipelineBuilder for T {}
+
 fn install_gdp_pipeline<'a>(
     q: PortQueue,
     gdp_pipeline: impl GdpPipeline,
@@ -67,11 +70,9 @@ fn install_gdp_pipeline<'a>(
         .map(|packet| Ok(packet.parse::<Gdp<Ipv4>>()?))
         .for_each(move |packet| {
             // Back-cache the route to allow NACK to reflect
-            store.with_mut_contents(|store| {
-                store
-                    .forwarding_table
-                    .insert(packet.src(), packet.envelope().envelope().envelope().src());
-            });
+            store
+                .forwarding_table
+                .put(packet.src(), packet.envelope().envelope().envelope().src());
             //println!("Parsed gdp packet in NIC {:?}: {:?}", nic_name, packet);
 
             // Record incoming packet statistics
@@ -136,7 +137,7 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
         .add_pipeline_to_port("eth1", move |q| {
             install_gdp_pipeline(
                 q.clone(),
-                pipeline1,
+                pipeline1(),
                 store1,
                 name1,
                 Some(Route {
@@ -149,7 +150,7 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
         .add_pipeline_to_port("eth3", move |q| {
             install_gdp_pipeline(
                 q,
-                pipeline3,
+                pipeline3(),
                 store3,
                 name3,
                 Some(Route {
@@ -183,17 +184,17 @@ fn start_prod_server(
 
     let node_addr = gdp_name.map(startup_route_lookup).flatten();
 
-    fn start<T: GdpPipeline + Send + Sync + Copy + 'static>(
+    fn start(
         config: RuntimeConfig,
         store: Store,
-        pipeline: T,
+        pipeline: impl GdpPipelineBuilder,
         node_addr: Option<Route>,
     ) -> Result<()> {
         let (print_stats, history_map) = make_print_stats();
 
         Runtime::build(config)?
             .add_pipeline_to_port("eth1", move |q| {
-                install_gdp_pipeline(q, pipeline, store, "prod", node_addr)
+                install_gdp_pipeline(q, pipeline(), store, "prod", node_addr)
             })?
             .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
             .execute()?;
