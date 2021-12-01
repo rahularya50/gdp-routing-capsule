@@ -178,6 +178,7 @@ fn start_prod_server(
     config: RuntimeConfig,
     mode: ProdMode,
     gdp_name: Option<GdpName>,
+    debug: bool 
 ) -> Result<()> {
     let store = Store::new();
 
@@ -203,7 +204,7 @@ fn start_prod_server(
     }
 
     match mode {
-        ProdMode::Router => start(config, store, rib_pipeline()?, node_addr),
+        ProdMode::Router => start(config, store, rib_pipeline(debug)?, node_addr),
         ProdMode::Switch => start(
             config,
             store,
@@ -229,6 +230,7 @@ fn main() -> Result<()> {
         requires_if("switch", "name")
         "The type of this node")
         (@arg name: -n --name +takes_value "The GDPName of this node (used for packet filtering)")
+        (@arg name: -d --debug !takes_value "Debug Mode: For Router mode, send default response even when GDP Name is invalid")
     )
     .get_matches();
 
@@ -247,8 +249,8 @@ fn main() -> Result<()> {
 
     match mode {
         Mode::Dev => start_dev_server(config),
-        Mode::Router => start_prod_server(config, ProdMode::Router, gdp_name.ok()),
-        Mode::Switch => start_prod_server(config, ProdMode::Switch, Some(gdp_name?)),
+        Mode::Router => start_prod_server(config, ProdMode::Router, gdp_name.ok(), matches.is_present("debug")),
+        Mode::Switch => start_prod_server(config, ProdMode::Switch, Some(gdp_name?), matches.is_present("debug")),
         Mode::Client => start_client_server(config, gdp_name?),
     }
 }
