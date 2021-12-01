@@ -187,5 +187,7 @@ pub fn encrypt_gdp(mut dtls_packet: DTls<Ipv4>) -> Result<DTls<Ipv4>> {
     dtls_packet
         .mbuf_mut()
         .write_data_slice(write_offset, &encrypted)?;
+
+    dtls_packet.reconcile_all();
     Ok(dtls_packet)
 }
