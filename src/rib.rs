@@ -5,7 +5,6 @@ use crate::kvs::GdpName;
 use crate::kvs::Store;
 use crate::pipeline;
 use crate::GdpPipeline;
-use crate::GdpPipelineBuilder;
 use anyhow::{anyhow, Result};
 use capsule::batch::Batch;
 use capsule::net::MacAddr;
@@ -64,7 +63,7 @@ pub fn create_rib_request(
     Ok(message)
 }
 
-pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: &Store) -> Result<()> {
+pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store) -> Result<()> {
     store
         .forwarding_table
         .put(packet.key(), packet.value().into());
@@ -113,16 +112,13 @@ fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes) -> Result<Gdp<Ipv4>> {
     Ok(out)
 }
 
-pub fn rib_pipeline() -> Result<impl GdpPipelineBuilder> {
-    let routes: &Routes = Box::leak(Box::new(load_routes()?));
-    Ok(move |store| {
-        Box::new(pipeline! {
-            GdpAction::RibGet => |group| {
-                group.replace(move |packet| handle_rib_query(packet, routes))
-            }
-            _ => |group| {group.filter(|_| false)}
-        }) as _
-    })
+pub fn rib_pipeline(routes: &'static Routes) -> impl GdpPipeline {
+    pipeline! {
+        GdpAction::RibGet => |group| {
+            group.replace(move |packet| handle_rib_query(packet, routes))
+        }
+        _ => |group| {group.filter(|_| false)}
+    }
 }
 
 #[derive(Deserialize)]

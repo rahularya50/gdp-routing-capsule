@@ -8,6 +8,7 @@ use crate::pipeline::GdpPipeline;
 use crate::rib::load_routes;
 use crate::rib::rib_pipeline;
 use crate::rib::test_signatures;
+use crate::rib::Routes;
 use crate::statistics::{dump_history, make_print_stats};
 use crate::switch::switch_pipeline;
 use crate::workloads::dev_schedule;
@@ -15,22 +16,16 @@ use crate::workloads::start_client_server;
 use anyhow::Result;
 use capsule::batch::{Batch, Pipeline, Poll};
 use capsule::config::RuntimeConfig;
-
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::{PortQueue, Runtime};
 use clap::{arg_enum, clap_app, value_t};
-
 use rib::Route;
-
 use std::fs;
-
-use std::time::Duration;
-
 use std::net::Ipv4Addr;
-
+use std::time::Duration;
 use tracing::Level;
 use tracing_subscriber::fmt;
 
@@ -45,9 +40,6 @@ mod schedule;
 mod statistics;
 mod switch;
 mod workloads;
-
-pub trait GdpPipelineBuilder: Fn(&Store) -> Box<dyn GdpPipeline> {}
-impl<T: Fn(&Store) -> Box<dyn GdpPipeline>> GdpPipelineBuilder for T {}
 
 fn install_gdp_pipeline<'a>(
     q: PortQueue,
@@ -73,12 +65,6 @@ fn install_gdp_pipeline<'a>(
             store
                 .forwarding_table
                 .put(packet.src(), packet.envelope().envelope().envelope().src());
-            //println!("Parsed gdp packet in NIC {:?}: {:?}", nic_name, packet);
-
-            // Record incoming packet statistics
-            // store.with_mut_contents(|store| {
-            //     store.in_statistics.record_packet(packet);
-            // });
             Ok(())
         })
         .group_by(
@@ -114,22 +100,11 @@ enum ProdMode {
 }
 
 fn start_dev_server(config: RuntimeConfig) -> Result<()> {
-    let store1 = Store::new();
-    let store2 = Store::new();
-    let store3 = Store::new();
-
     let name1 = "rib1";
     let name2 = "sw1";
     let name3 = "sw2";
 
-    let pipeline1 = rib_pipeline()?;
-    let pipeline3 = switch_pipeline(
-        store3,
-        Route {
-            ip: Ipv4Addr::new(10, 100, 1, 10),
-            mac: MacAddr::new(0x02, 0x00, 0x00, 0xFF, 0xFF, 0x00),
-        },
-    )?;
+    let routes: &'static Routes = Box::leak(Box::new(load_routes()?));
 
     let (print_stats, history_map) = make_print_stats();
 
@@ -137,8 +112,8 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
         .add_pipeline_to_port("eth1", move |q| {
             install_gdp_pipeline(
                 q.clone(),
-                pipeline1(),
-                store1,
+                rib_pipeline(routes),
+                Store::new(),
                 name1,
                 Some(Route {
                     ip: Ipv4Addr::new(10, 100, 1, 10),
@@ -146,12 +121,20 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
                 }),
             )
         })?
-        .add_pipeline_to_port("eth2", move |q| dev_schedule(q, name2, store2))?
+        .add_pipeline_to_port("eth2", move |q| dev_schedule(q, name2, Store::new()))?
         .add_pipeline_to_port("eth3", move |q| {
+            let store = Store::new();
             install_gdp_pipeline(
                 q,
-                pipeline3(),
-                store3,
+                switch_pipeline(
+                    store,
+                    routes,
+                    Route {
+                        ip: Ipv4Addr::new(10, 100, 1, 10),
+                        mac: MacAddr::new(0x02, 0x00, 0x00, 0xFF, 0xFF, 0x00),
+                    },
+                ),
+                store,
                 name3,
                 Some(Route {
                     ip: Ipv4Addr::new(10, 100, 1, 12),
@@ -180,37 +163,39 @@ fn start_prod_server(
     mode: ProdMode,
     gdp_name: Option<GdpName>,
 ) -> Result<()> {
-    let store = Store::new();
+    fn create_rib(_store: Store, routes: &'static Routes) -> impl GdpPipeline {
+        rib_pipeline(routes)
+    }
 
-    let node_addr = gdp_name.map(startup_route_lookup).flatten();
+    fn create_switch(store: Store, routes: &'static Routes) -> impl GdpPipeline {
+        switch_pipeline(store, routes, routes.rib)
+    }
 
-    fn start(
+    fn start<T: GdpPipeline + 'static>(
         config: RuntimeConfig,
-        store: Store,
-        pipeline: impl GdpPipelineBuilder,
-        node_addr: Option<Route>,
+        gdp_name: Option<GdpName>,
+        pipeline: fn(Store, &'static Routes) -> T,
     ) -> Result<()> {
+        let node_addr = gdp_name.map(startup_route_lookup).flatten();
+
+        let store = Store::new_shared();
         let (print_stats, history_map) = make_print_stats();
+        let routes: &'static Routes = Box::leak(Box::new(load_routes()?));
 
         Runtime::build(config)?
             .add_pipeline_to_port("eth1", move |q| {
-                install_gdp_pipeline(q, pipeline(), store, "prod", node_addr)
+                let store = store.sync();
+                install_gdp_pipeline(q, pipeline(store, routes), store, "prod", node_addr)
             })?
             .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
             .execute()?;
-
-        let x = dump_history(&(*history_map.lock().unwrap()));
-        x
+        dump_history(&(*history_map.lock().unwrap()))?;
+        Ok(())
     }
 
     match mode {
-        ProdMode::Router => start(config, store, rib_pipeline()?, node_addr),
-        ProdMode::Switch => start(
-            config,
-            store,
-            switch_pipeline(store, load_routes()?.rib)?,
-            node_addr,
-        ),
+        ProdMode::Router => start(config, gdp_name, create_rib),
+        ProdMode::Switch => start(config, gdp_name, create_switch),
     }
 }
 

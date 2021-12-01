@@ -6,6 +6,11 @@ use std::sync::RwLock;
 
 pub type GdpName = u32;
 
+pub struct SharedCache<K, V>(&'static RwLock<HashMap<K, V>>)
+where
+    K: 'static,
+    V: 'static;
+
 #[derive(Copy, Clone)]
 pub struct SyncCache<K, V>
 where
@@ -16,35 +21,53 @@ where
     global: &'static RwLock<HashMap<K, V>>,
 }
 
+impl<K, V> SharedCache<K, V> {
+    fn new() -> Self {
+        Self(Box::leak(Box::new(RwLock::new(HashMap::new()))))
+    }
+
+    fn sync(self: &Self) -> SyncCache<K, V> {
+        SyncCache {
+            local: Box::leak(Box::new(RefCell::new(HashMap::new()))),
+            global: self.0,
+        }
+    }
+}
+
 impl<K, V> SyncCache<K, V>
 where
-    K: Eq + Hash,
+    K: Eq + Hash + Copy,
+    V: Clone,
 {
-    fn new() -> Self {
-        SyncCache {
-            local: Box::leak(Box::new(RefCell::new(HashMap::new()))),
-            global: Box::leak(Box::new(RwLock::new(HashMap::new()))),
-        }
-    }
-
-    fn fork(self: &Self) -> Self {
-        SyncCache {
-            local: Box::leak(Box::new(RefCell::new(HashMap::new()))),
-            global: self.global,
-        }
-    }
-
-    pub fn get(self: &Self, k: &K) -> Option<&V> {
+    pub fn get(self: &Self, k: &K) -> Option<V> {
         self.local
             .borrow()
             .get(k)
-            .or_else(|| self.global.read().unwrap().get(k))
+            .cloned()
+            .or_else(|| self.global.read().unwrap().get(k).cloned())
     }
 
     pub fn put(self: &Self, k: K, v: V) {
         if !self.local.borrow().contains_key(&k) {
-            self.local.borrow_mut().insert(k, v);
+            self.local.borrow_mut().insert(k, v.clone());
             self.global.write().unwrap().insert(k, v);
+        }
+    }
+}
+
+pub struct SharedStore {
+    forwarding_table: SharedCache<GdpName, Ipv4Addr>,
+}
+
+impl SharedStore {
+    fn new() -> SharedStore {
+        SharedStore {
+            forwarding_table: SharedCache::new(),
+        }
+    }
+    pub fn sync(self: &Self) -> Store {
+        Store {
+            forwarding_table: self.forwarding_table.sync(),
         }
     }
 }
@@ -56,14 +79,10 @@ pub struct Store {
 
 impl Store {
     pub fn new() -> Self {
-        Store {
-            forwarding_table: SyncCache::new(),
-        }
+        Self::new_shared().sync()
     }
 
-    pub fn fork(self: &Self) -> Self {
-        Store {
-            forwarding_table: self.forwarding_table.fork(),
-        }
+    pub fn new_shared() -> SharedStore {
+        SharedStore::new()
     }
 }

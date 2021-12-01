@@ -1,4 +1,3 @@
-
 use capsule::metrics;
 
 use metrics_core::{Builder, Observe};
@@ -12,10 +11,13 @@ use std::io::LineWriter;
 
 use anyhow::Result;
 
-use std::sync::Mutex;
 use std::sync::Arc;
+use std::sync::Mutex;
 
-fn print_stats_diff(current_m: &mut HashMap<String, u64>, history_m: &mut HashMap<String, Vec<u64>>) {
+fn print_stats_diff(
+    current_m: &mut HashMap<String, u64>,
+    history_m: &mut HashMap<String, Vec<u64>>,
+) {
     let mut observer = YamlBuilder::new().build();
     metrics::global().controller().observe(&mut observer);
     let snapshot = metrics::global().controller().snapshot();
@@ -33,11 +35,7 @@ fn print_stats_diff(current_m: &mut HashMap<String, u64>, history_m: &mut HashMa
         );
         if let Counter(value) = v {
             let diff = value - current_m.insert(labels.clone(), *value).unwrap_or(0);
-            println!(
-                "{}: {}",
-                labels,
-                diff,
-            );
+            println!("{}: {}", labels, diff,);
             history_m.entry(labels).or_insert(Vec::new()).push(diff);
         }
     });
@@ -45,14 +43,23 @@ fn print_stats_diff(current_m: &mut HashMap<String, u64>, history_m: &mut HashMa
 
 pub fn make_print_stats() -> (impl Fn(), Arc<Mutex<HashMap<String, Vec<u64>>>>) {
     let stats_map_ref: Arc<Mutex<HashMap<String, u64>>> = Arc::new(Mutex::new(HashMap::new()));
-    let history_map_ref: Arc<Mutex<HashMap<String, Vec<u64>>>> = Arc::new(Mutex::new(HashMap::new()));
+    let history_map_ref: Arc<Mutex<HashMap<String, Vec<u64>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     let history_map_copy = history_map_ref.clone();
-    return (move || print_stats_diff(&mut *stats_map_ref.lock().unwrap(), &mut *history_map_ref.lock().unwrap()), history_map_copy);
+    return (
+        move || {
+            print_stats_diff(
+                &mut *stats_map_ref.lock().unwrap(),
+                &mut *history_map_ref.lock().unwrap(),
+            )
+        },
+        history_map_copy,
+    );
 }
 
 pub fn dump_history(map: &HashMap<String, Vec<u64>>) -> Result<()> {
     // Dump statistics to a statistics.csv
-    
+
     let file = File::create("statistics.csv")?;
     let mut file = LineWriter::new(file);
 
@@ -64,21 +71,24 @@ pub fn dump_history(map: &HashMap<String, Vec<u64>>) -> Result<()> {
     }
     map_keys.sort();
 
-    file.write_all(
-        (map_keys.join(",") + "\n").as_bytes()
-    )?;
-    
+    file.write_all((map_keys.join(",") + "\n").as_bytes())?;
+
     // now write all the values
     let upto = map.get(map_keys[0]).map(|vec| vec.len()).unwrap_or(0);
 
     for i in 0..upto {
-        let vals = map_keys.iter().map(|k| map.get(*k).map(|vec| vec.get(i).unwrap_or(&0)).unwrap_or(&0).to_string()).collect::<Vec<_>>();
-        file.write_all(
-            (vals.join(",") + "\n").as_bytes()
-        )?;
+        let vals = map_keys
+            .iter()
+            .map(|k| {
+                map.get(*k)
+                    .map(|vec| vec.get(i).unwrap_or(&0))
+                    .unwrap_or(&0)
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+        file.write_all((vals.join(",") + "\n").as_bytes())?;
     }
     file.flush()?;
 
     Ok(())
-
 }
