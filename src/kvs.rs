@@ -40,11 +40,17 @@ where
     V: Clone,
 {
     pub fn get(self: &Self, k: &K) -> Option<V> {
-        self.local
-            .borrow()
-            .get(k)
-            .cloned()
-            .or_else(|| self.global.read().unwrap().get(k).cloned())
+        let mut m = self.local.borrow_mut();
+        if m.contains_key(k) {
+            return m.get(k).cloned();
+        }
+
+        // Otherwise must hit global cache and update local
+        let g_opt = self.global.read().unwrap().get(k).cloned();
+        if g_opt.is_some() {
+            m.insert(*k, g_opt.as_ref().unwrap().clone());
+        }
+        g_opt
     }
 
     pub fn put(self: &Self, k: K, v: V) {
