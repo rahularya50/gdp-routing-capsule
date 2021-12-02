@@ -61,15 +61,16 @@ fn prep_packet(
     reply.set_dst(dst_ip);
 
     let mut reply = reply.push::<Udp<Ipv4>>()?;
-    reply.set_src_port(27182);
-    reply.set_dst_port(27182);
+    let mut rng = rand::thread_rng();
+    // randomize port to hash into different queues
+    reply.set_src_port(rng.gen());
+    reply.set_dst_port(rng.gen());
 
     let reply = reply.push::<DTls<Ipv4>>()?;
 
     let mut reply = reply.push::<Gdp<Ipv4>>()?;
     reply.set_action(GdpAction::Forward);
 
-    let mut rng = rand::thread_rng();
     let rval: f32 = rng.gen();
     if rval < random_dest_chance {
         reply.set_dst(rng.gen());
