@@ -78,26 +78,6 @@ impl<T: IpPacket> Gdp<T> {
     }
 
     #[inline]
-    pub fn key(&self) -> u32 {
-        self.header().key
-    }
-
-    #[inline]
-    pub fn set_key(&mut self, key: u32) {
-        self.header_mut().key = key;
-    }
-
-    #[inline]
-    pub fn value(&self) -> u32 {
-        self.header().value
-    }
-
-    #[inline]
-    pub fn set_value(&mut self, value: u32) {
-        self.header_mut().value = value;
-    }
-
-    #[inline]
     pub fn ttl(&self) -> u8 {
         self.header().ttl
     }
@@ -137,8 +117,6 @@ impl fmt::Debug for Gdp<Ipv4> {
             .field("action", &self.action())
             .field("src", &self.src())
             .field("dst", &self.dst())
-            .field("key", &self.key())
-            .field("value", &self.value())
             .field("ipv4_frame", ipv4)
             .field("eth_frame", ethernet)
             .finish()
@@ -233,6 +211,4 @@ struct GdpHeader {
     action: u8,   // GDP_ACTION enum
     src: GdpName, // 256-bit source
     dst: GdpName, // 256-bit destination
-    key: u32,     // query key, used in meta-packets
-    value: u32,   // query value, used in meta-packets
 }

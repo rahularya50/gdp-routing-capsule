@@ -9,7 +9,7 @@ use crate::rib::create_rib_request;
 use crate::rib::handle_rib_reply;
 use crate::rib::Routes;
 use crate::Route;
-use anyhow::anyhow;
+
 use anyhow::Result;
 use capsule::batch::Batch;
 use capsule::batch::Either;
@@ -17,10 +17,20 @@ use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Packet;
 use capsule::packets::Udp;
 use capsule::Mbuf;
+
 use std::net::Ipv4Addr;
 
 fn find_destination(gdp: &Gdp<Ipv4>, store: Store) -> Option<Ipv4Addr> {
-    store.forwarding_table.get(&gdp.dst())
+        // lazy expire on read
+        if let Some(o) = store.forwarding_table.get(&gdp.dst()) {
+            if o.is_expired() {
+                store.forwarding_table.remove(&gdp.dst());
+            }
+        }
+        store
+            .forwarding_table
+            .get(&gdp.dst())
+            .map(|x| x.ip)
 }
 
 fn bounce_udp(udp: &mut Udp<Ipv4>) {
@@ -95,7 +105,7 @@ pub fn switch_pipeline(
                         .inject(move |packet| {
                             let src_ip = packet.envelope().envelope().envelope().src();
                             let src_mac = packet.envelope().envelope().envelope().envelope().src();
-                            println!("Querying RIB for destination {:?}", packet.dst());
+                            // println!("Querying RIB for destination {:?}", packet.dst());
                             create_rib_request(Mbuf::new()?, packet.dst(), src_mac, src_ip, rib_route)
                         })
                     }

@@ -18,6 +18,7 @@ doctest = false
 [dependencies]
 aes-gcm = "0.9.4"
 anyhow = "1.0"
+bincode = "1.2.1"
 capsule = "0.1"
 derivative = "2.2.0"
 tracing = "0.1"

@@ -1,6 +1,6 @@
 app_name = "gdp"
 master_core = 0
-duration = 5
+duration = 20
 
 [mempool]
     capacity = 65535

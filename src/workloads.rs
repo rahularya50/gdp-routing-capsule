@@ -113,16 +113,6 @@ fn send_initial_packets(
                 random_dest_chance,
             )
         })
-        .for_each(move |_packet| {
-            //println!(
-            //    "Sending out one-shot packet from NIC {:?}: {:?}",
-            //    nic_name, packet
-            //);
-            // store.with_mut_contents(|store| {
-            //     store.out_statistics.record_packet(packet);
-            // });
-            Ok(())
-        })
         .map(|packet| Ok(packet.deparse()))
         .map(encrypt_gdp)
         .send(q)
@@ -142,8 +132,10 @@ pub fn dev_schedule(q: PortQueue, name: &str, _store: Store) -> impl Pipeline + 
         mac: switch_mac,
     };
     Schedule::new(name, async move {
+        println!("sending initial packet 1");
         send_initial_packet(q.clone(), name, src_ip, switch_route);
-        delay_for(Duration::from_millis(1000)).await;
+        delay_for(Duration::from_millis(2000)).await;
+        println!("sending initial packet 2");
         send_initial_packet(q.clone(), name, src_ip, switch_route);
     })
 }
