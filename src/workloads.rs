@@ -3,19 +3,19 @@ use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
 use crate::kvs::{GdpName, Store};
 use crate::schedule::Schedule;
-use rand::Rng;
 use crate::startup_route_lookup;
+use rand::Rng;
 use std::fs;
 
 use crate::statistics::make_print_stats;
 use crate::Route;
 use serde::Deserialize;
 
+use crate::dump_history;
 use anyhow::{anyhow, Result};
 use capsule::batch::{self, Batch, Pipeline};
 use capsule::config::RuntimeConfig;
 use capsule::net::MacAddr;
-use crate::dump_history;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
@@ -81,7 +81,9 @@ fn prep_packet(
 
     let offset = reply.payload_offset();
     reply.mbuf_mut().extend(offset, payload_size)?;
-    reply.mbuf_mut().write_data_slice(offset, &message[..payload_size])?;
+    reply
+        .mbuf_mut()
+        .write_data_slice(offset, &message[..payload_size])?;
 
     reply.reconcile_all();
 
@@ -96,11 +98,21 @@ fn send_initial_packets(
     switch_route: Route,
     num_packets: usize,
     payload_size: usize,
-    random_dest_chance: f32
+    random_dest_chance: f32,
 ) -> () {
     let src_mac = q.mac_addr();
     batch::poll_fn(|| Mbuf::alloc_bulk(num_packets).unwrap())
-        .map(move |packet| prep_packet(packet, src_mac, src_ip, switch_route.mac, switch_route.ip, payload_size, random_dest_chance))
+        .map(move |packet| {
+            prep_packet(
+                packet,
+                src_mac,
+                src_ip,
+                switch_route.mac,
+                switch_route.ip,
+                payload_size,
+                random_dest_chance,
+            )
+        })
         .for_each(move |_packet| {
             //println!(
             //    "Sending out one-shot packet from NIC {:?}: {:?}",
@@ -124,7 +136,7 @@ fn send_initial_packet(
     src_ip: Ipv4Addr,
     switch_route: Route,
 ) {
-    send_initial_packets(q, nic_name, store, src_ip, switch_route, 1, 800,0.0);
+    send_initial_packets(q, nic_name, store, src_ip, switch_route, 1, 800, 0.0);
 }
 
 pub fn dev_schedule(q: PortQueue, name: &str, store: Store) -> impl Pipeline + '_ {
@@ -153,13 +165,28 @@ fn client_schedule(q: PortQueue, name: &str, store: Store, src_ip: Ipv4Addr) -> 
 
 fn flood_single(q: PortQueue, name: &str, store: Store, src_ip: Ipv4Addr) -> impl Pipeline + '_ {
     let switch_route = startup_route_lookup(2).unwrap();
-    let test_conf = load_test_config().unwrap_or_else(|_| TestConfig{payload_size: 800, random_dest_chance: 0.0});
+    let test_conf = load_test_config().unwrap_or_else(|_| TestConfig {
+        payload_size: 800,
+        random_dest_chance: 0.0,
+    });
     let payload_size = test_conf.payload_size;
     let random_dest_chance = test_conf.random_dest_chance;
-    println!("Running test {} with payload size {}, random dest chance {}", "flood_single", payload_size, random_dest_chance);
+    println!(
+        "Running test {} with payload size {}, random dest chance {}",
+        "flood_single", payload_size, random_dest_chance
+    );
     Schedule::new(name, async move {
         for _i in 0..100000 {
-            send_initial_packets(q.clone(), name, store, src_ip, switch_route, 36, payload_size, random_dest_chance);
+            send_initial_packets(
+                q.clone(),
+                name,
+                store,
+                src_ip,
+                switch_route,
+                36,
+                payload_size,
+                random_dest_chance,
+            );
             delay_for(Duration::from_micros(1));
         }
     })
@@ -170,13 +197,12 @@ pub fn start_client_server(config: RuntimeConfig, gdp_name: GdpName) -> Result<(
     let (print_stats, history_map) = make_print_stats();
     let src_route = startup_route_lookup(gdp_name).ok_or(anyhow!("Invalid client GDPName!"))?;
     Runtime::build(config)?
-        .add_pipeline_to_port("eth1", move |q| flood_single(q, "client", store, src_route.ip))?
-        .add_periodic_task_to_core(
-            0,
-            print_stats,
-            Duration::from_secs(1),
-        )?
+        .add_pipeline_to_port("eth1", move |q| {
+            flood_single(q, "client", store, src_route.ip)
+        })?
+        .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
         .execute()?;
-   
-    let x = dump_history(&(*history_map.lock().unwrap())); x
+
+    let x = dump_history(&(*history_map.lock().unwrap()));
+    x
 }

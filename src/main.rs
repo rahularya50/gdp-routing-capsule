@@ -187,7 +187,7 @@ fn start_prod_server(
     config: RuntimeConfig,
     mode: ProdMode,
     gdp_name: Option<GdpName>,
-    debug: bool 
+    debug: bool,
 ) -> Result<()> {
     let store = Store::new();
 
@@ -258,8 +258,18 @@ fn main() -> Result<()> {
 
     match mode {
         Mode::Dev => start_dev_server(config),
-        Mode::Router => start_prod_server(config, ProdMode::Router, gdp_name.ok(), matches.is_present("debug")),
-        Mode::Switch => start_prod_server(config, ProdMode::Switch, Some(gdp_name?), matches.is_present("debug")),
+        Mode::Router => start_prod_server(
+            config,
+            ProdMode::Router,
+            gdp_name.ok(),
+            matches.is_present("debug"),
+        ),
+        Mode::Switch => start_prod_server(
+            config,
+            ProdMode::Switch,
+            Some(gdp_name?),
+            matches.is_present("debug"),
+        ),
         Mode::Client => start_client_server(config, gdp_name?),
     }
 }

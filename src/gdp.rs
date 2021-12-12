@@ -228,8 +228,8 @@ impl<T: IpPacket> Packet for Gdp<T> {
 #[repr(C)]
 struct GdpHeader {
     field: u16be, // nonce used to identify GDP packets
-    #[derivative(Default(value="64"))]
-    ttl: u8,      // number of GDP-level hops remaining before packet is dropped
+    #[derivative(Default(value = "64"))]
+    ttl: u8, // number of GDP-level hops remaining before packet is dropped
     action: u8,   // GDP_ACTION enum
     src: GdpName, // 256-bit source
     dst: GdpName, // 256-bit destination

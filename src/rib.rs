@@ -129,13 +129,13 @@ pub fn rib_pipeline(debug: bool) -> Result<impl GdpPipeline + Copy> {
 struct SerializedRoutes {
     routes: HashMap<String, Route>,
     rib: Route,
-    default: Route
+    default: Route,
 }
 
 pub struct Routes {
     pub routes: HashMap<GdpName, Route>,
     pub rib: Route,
-    pub default: Route
+    pub default: Route,
 }
 #[derive(Clone, Copy, Deserialize)]
 pub struct Route {
@@ -154,7 +154,7 @@ pub fn load_routes() -> Result<Routes> {
             .map(|it| (it.0.parse::<GdpName>().unwrap(), it.1.to_owned()))
             .collect(),
         rib: serialized.rib,
-        default: serialized.default
+        default: serialized.default,
     })
 }
 
