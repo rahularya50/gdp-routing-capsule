@@ -1,34 +1,94 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::net::Ipv4Addr;
 use std::sync::RwLock;
 
 pub type GdpName = u32;
 
-pub struct StoreContents {
-    pub forwarding_table: HashMap<GdpName, Ipv4Addr>, // for this switch, this tells us the IP address of the next hop for a given target
+pub struct SharedCache<K, V>(&'static RwLock<HashMap<K, V>>)
+where
+    K: 'static,
+    V: 'static;
+
+#[derive(Copy, Clone)]
+pub struct SyncCache<K, V>
+where
+    K: 'static,
+    V: 'static,
+{
+    local: &'static RefCell<HashMap<K, V>>,
+    global: &'static RwLock<HashMap<K, V>>,
+}
+
+impl<K, V> SharedCache<K, V> {
+    fn new() -> Self {
+        Self(Box::leak(Box::new(RwLock::new(HashMap::new()))))
+    }
+
+    fn sync(self: &Self) -> SyncCache<K, V> {
+        SyncCache {
+            local: Box::leak(Box::new(RefCell::new(HashMap::new()))),
+            global: self.0,
+        }
+    }
+}
+
+impl<K, V> SyncCache<K, V>
+where
+    K: Eq + Hash + Copy,
+    V: Clone,
+{
+    pub fn get(self: &Self, k: &K) -> Option<V> {
+        let mut m = self.local.borrow_mut();
+        if m.contains_key(k) {
+            return m.get(k).cloned();
+        }
+
+        // Otherwise must hit global cache and update local
+        let g_opt = self.global.read().unwrap().get(k).cloned();
+        if g_opt.is_some() {
+            m.insert(*k, g_opt.as_ref().unwrap().clone());
+        }
+        g_opt
+    }
+
+    pub fn put(self: &Self, k: K, v: V) {
+        if !self.local.borrow().contains_key(&k) {
+            self.local.borrow_mut().insert(k, v.clone());
+            self.global.write().unwrap().insert(k, v);
+        }
+    }
+}
+
+pub struct SharedStore {
+    forwarding_table: SharedCache<GdpName, Ipv4Addr>,
+}
+
+impl SharedStore {
+    fn new() -> SharedStore {
+        SharedStore {
+            forwarding_table: SharedCache::new(),
+        }
+    }
+    pub fn sync(self: &Self) -> Store {
+        Store {
+            forwarding_table: self.forwarding_table.sync(),
+        }
+    }
 }
 
 #[derive(Copy, Clone)]
-pub struct Store(&'static RwLock<StoreContents>);
+pub struct Store {
+    pub forwarding_table: SyncCache<GdpName, Ipv4Addr>,
+}
 
 impl Store {
     pub fn new() -> Self {
-        Store(Box::leak(Box::new(RwLock::new(StoreContents {
-            forwarding_table: HashMap::new(),
-        }))))
+        Self::new_shared().sync()
     }
 
-    pub fn with_mut_contents<F, T>(&self, f: F) -> T
-    where
-        F: FnOnce(&mut StoreContents) -> T,
-    {
-        f(&mut self.0.write().unwrap())
-    }
-
-    pub fn with_contents<F, T>(&self, f: F) -> T
-    where
-        F: FnOnce(&StoreContents) -> T,
-    {
-        f(&self.0.read().unwrap())
+    pub fn new_shared() -> SharedStore {
+        SharedStore::new()
     }
 }

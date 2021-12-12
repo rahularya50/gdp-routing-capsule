@@ -61,15 +61,16 @@ fn prep_packet(
     reply.set_dst(dst_ip);
 
     let mut reply = reply.push::<Udp<Ipv4>>()?;
-    reply.set_src_port(27182);
-    reply.set_dst_port(27182);
+    let mut rng = rand::thread_rng();
+    // randomize port to hash into different queues
+    reply.set_src_port(rng.gen());
+    reply.set_dst_port(rng.gen());
 
     let reply = reply.push::<DTls<Ipv4>>()?;
 
     let mut reply = reply.push::<Gdp<Ipv4>>()?;
     reply.set_action(GdpAction::Forward);
 
-    let mut rng = rand::thread_rng();
     let rval: f32 = rng.gen();
     if rval < random_dest_chance {
         reply.set_dst(rng.gen());
@@ -93,7 +94,6 @@ fn prep_packet(
 fn send_initial_packets(
     q: PortQueue,
     _nic_name: &str,
-    _store: Store,
     src_ip: Ipv4Addr,
     switch_route: Route,
     num_packets: usize,
@@ -129,17 +129,11 @@ fn send_initial_packets(
         .run_once();
 }
 
-fn send_initial_packet(
-    q: PortQueue,
-    nic_name: &str,
-    store: Store,
-    src_ip: Ipv4Addr,
-    switch_route: Route,
-) {
-    send_initial_packets(q, nic_name, store, src_ip, switch_route, 1, 800, 0.0);
+fn send_initial_packet(q: PortQueue, nic_name: &str, src_ip: Ipv4Addr, switch_route: Route) {
+    send_initial_packets(q, nic_name, src_ip, switch_route, 1, 800, 0.0);
 }
 
-pub fn dev_schedule(q: PortQueue, name: &str, store: Store) -> impl Pipeline + '_ {
+pub fn dev_schedule(q: PortQueue, name: &str, _store: Store) -> impl Pipeline + '_ {
     let src_ip = Ipv4Addr::new(10, 100, 1, 11);
     let switch_ip = Ipv4Addr::new(10, 100, 1, 12);
     let switch_mac = MacAddr::new(0x02, 0x00, 0x00, 0xff, 0xff, 0x02);
@@ -148,22 +142,22 @@ pub fn dev_schedule(q: PortQueue, name: &str, store: Store) -> impl Pipeline + '
         mac: switch_mac,
     };
     Schedule::new(name, async move {
-        send_initial_packet(q.clone(), name, store, src_ip, switch_route);
+        send_initial_packet(q.clone(), name, src_ip, switch_route);
         delay_for(Duration::from_millis(1000)).await;
-        send_initial_packet(q.clone(), name, store, src_ip, switch_route);
+        send_initial_packet(q.clone(), name, src_ip, switch_route);
     })
 }
 
-fn client_schedule(q: PortQueue, name: &str, store: Store, src_ip: Ipv4Addr) -> impl Pipeline + '_ {
+fn client_schedule(q: PortQueue, name: &str, src_ip: Ipv4Addr) -> impl Pipeline + '_ {
     let switch_route = startup_route_lookup(2).unwrap();
     Schedule::new(name, async move {
-        send_initial_packet(q.clone(), name, store, src_ip, switch_route);
+        send_initial_packet(q.clone(), name, src_ip, switch_route);
         delay_for(Duration::from_millis(1000)).await;
-        send_initial_packet(q.clone(), name, store, src_ip, switch_route);
+        send_initial_packet(q.clone(), name, src_ip, switch_route);
     })
 }
 
-fn flood_single(q: PortQueue, name: &str, store: Store, src_ip: Ipv4Addr) -> impl Pipeline + '_ {
+fn flood_single(q: PortQueue, name: &str, src_ip: Ipv4Addr) -> impl Pipeline + '_ {
     let switch_route = startup_route_lookup(2).unwrap();
     let test_conf = load_test_config().unwrap_or_else(|_| TestConfig {
         payload_size: 800,
@@ -180,7 +174,6 @@ fn flood_single(q: PortQueue, name: &str, store: Store, src_ip: Ipv4Addr) -> imp
             send_initial_packets(
                 q.clone(),
                 name,
-                store,
                 src_ip,
                 switch_route,
                 36,
@@ -193,16 +186,13 @@ fn flood_single(q: PortQueue, name: &str, store: Store, src_ip: Ipv4Addr) -> imp
 }
 
 pub fn start_client_server(config: RuntimeConfig, gdp_name: GdpName) -> Result<()> {
-    let store = Store::new();
     let (print_stats, history_map) = make_print_stats();
     let src_route = startup_route_lookup(gdp_name).ok_or(anyhow!("Invalid client GDPName!"))?;
     Runtime::build(config)?
-        .add_pipeline_to_port("eth1", move |q| {
-            flood_single(q, "client", store, src_route.ip)
-        })?
+        .add_pipeline_to_port("eth1", move |q| flood_single(q, "client", src_route.ip))?
         .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
         .execute()?;
 
-    let x = dump_history(&(*history_map.lock().unwrap()));
-    x
+    dump_history(&*history_map.lock().unwrap())?;
+    Ok(())
 }

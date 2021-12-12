@@ -64,11 +64,9 @@ pub fn create_rib_request(
 }
 
 pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store) -> Result<()> {
-    store.with_mut_contents(|store| {
-        store
-            .forwarding_table
-            .insert(packet.key(), packet.value().into())
-    });
+    store
+        .forwarding_table
+        .put(packet.key(), packet.value().into());
     Ok(())
 }
 
@@ -115,14 +113,13 @@ fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes, debug: bool) -> Result<
     Ok(out)
 }
 
-pub fn rib_pipeline(debug: bool) -> Result<impl GdpPipeline + Copy> {
-    let routes: &Routes = Box::leak(Box::new(load_routes()?));
-    Ok(pipeline! {
+pub fn rib_pipeline(debug: bool, routes: &'static Routes) -> impl GdpPipeline {
+    pipeline! {
         GdpAction::RibGet => |group| {
             group.replace(move |packet| handle_rib_query(packet, routes, debug))
         }
         _ => |group| {group.filter(|_| false)}
-    })
+    }
 }
 
 #[derive(Deserialize)]

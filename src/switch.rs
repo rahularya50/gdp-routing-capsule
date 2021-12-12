@@ -2,7 +2,7 @@ use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
 use crate::gdpbatch::GdpBatch;
 use crate::kvs::Store;
-use crate::load_routes;
+
 use crate::pipeline;
 use crate::pipeline::GdpPipeline;
 use crate::rib::create_rib_request;
@@ -20,7 +20,7 @@ use capsule::Mbuf;
 use std::net::Ipv4Addr;
 
 fn find_destination(gdp: &Gdp<Ipv4>, store: Store) -> Option<Ipv4Addr> {
-    store.with_contents(|store| store.forwarding_table.get(&gdp.dst()).cloned())
+    store.forwarding_table.get(&gdp.dst())
 }
 
 fn bounce_udp(udp: &mut Udp<Ipv4>) {
@@ -72,16 +72,19 @@ fn bounce_gdp(mut gdp: Gdp<Ipv4>) -> Result<Gdp<Ipv4>> {
     Ok(gdp)
 }
 
-pub fn switch_pipeline(store: Store, rib_route: Route) -> Result<impl GdpPipeline + Copy> {
-    let routes: &Routes = Box::leak(Box::new(load_routes()?));
-    Ok(pipeline! {
+pub fn switch_pipeline(
+    store: Store,
+    routes: &'static Routes,
+    rib_route: Route,
+) -> impl GdpPipeline {
+    pipeline! {
         GdpAction::Forward => |group| {
             group.group_by(
                 move |packet| find_destination(packet, store).is_some(),
                 pipeline! {
                     true => |group| {
                         group.filter_map(move |packet| {
-                            let ip = find_destination(&packet, store).ok_or(anyhow!("can't find the destination"))?;
+                            let ip = find_destination(&packet, store).unwrap();
                             let mac = routes.routes.get(&packet.dst()).unwrap_or(&routes.default).mac; // FIXME - this is a hack!!!
                             forward_gdp(packet, Route {ip, mac})
                         })
@@ -103,5 +106,5 @@ pub fn switch_pipeline(store: Store, rib_route: Route) -> Result<impl GdpPipelin
                 .filter(|_| false)
         }
         _ => |group| {group.filter(|_| false)}
-    })
+    }
 }
