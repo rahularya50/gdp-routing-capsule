@@ -4,15 +4,18 @@ use crate::gdp::GdpAction;
 use crate::kvs::GdpName;
 use crate::kvs::Store;
 use crate::pipeline;
+use crate::FwdTableEntry;
 use crate::GdpPipeline;
 use anyhow::{anyhow, Result};
+
+use bincode;
 use capsule::batch::Batch;
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::Mbuf;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use signatory::ed25519::Signature;
 use signatory::ed25519::SigningKey;
 use signatory::ed25519::VerifyingKey;
@@ -24,6 +27,7 @@ use signatory::signature::Verifier;
 use std::collections::HashMap;
 use std::fs;
 use std::net::Ipv4Addr;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const RIB_PORT: u16 = 27182;
 
@@ -51,26 +55,45 @@ pub fn create_rib_request(
     let mut message = message.push::<Gdp<Ipv4>>()?;
 
     message.set_action(GdpAction::RibGet);
-    message.set_key(key);
 
-    let content = "RIB Query".as_bytes();
+    let query = RibQuery::new(key);
+    let content = bincode::serialize(&query).unwrap();
     let offset = message.payload_offset();
     message.mbuf_mut().extend(offset, content.len())?;
     message.mbuf_mut().write_data_slice(offset, &content)?;
 
     message.reconcile_all();
-
     Ok(message)
 }
 
 pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store) -> Result<()> {
-    store
-        .forwarding_table
-        .put(packet.key(), packet.value().into());
+    let data_slice = packet
+        .mbuf()
+        .read_data_slice(packet.payload_offset(), packet.payload_len())
+        .unwrap();
+    let data_slice_ref = unsafe { data_slice.as_ref() };
+    let response: RibResponse = bincode::deserialize(data_slice_ref).unwrap();
+    let expiration_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + response.ttl;
+    store.forwarding_table.put(
+        response.gdp_name,
+        FwdTableEntry::new(response.ip, expiration_time),
+    );
+
     Ok(())
 }
 
 fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes, debug: bool) -> Result<Gdp<Ipv4>> {
+    // read the query payload
+    let data_slice = packet
+        .mbuf()
+        .read_data_slice(packet.payload_offset(), packet.payload_len())?;
+    let data_slice_ref = unsafe { data_slice.as_ref() };
+    let query: RibQuery = bincode::deserialize(data_slice_ref).unwrap();
+
     let dtls = packet.envelope();
     let udp = dtls.envelope();
     let ipv4 = udp.envelope();
@@ -93,8 +116,7 @@ fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes, debug: bool) -> Result<
 
     let mut out = out.push::<Gdp<Ipv4>>()?;
     out.set_action(GdpAction::RibReply);
-    out.set_key(packet.key());
-    let mut result: Option<&Route> = routes.routes.get(&packet.key());
+    let mut result: Option<&Route> = routes.routes.get(&query.gdp_name);
     if result.is_none() {
         if debug {
             result = Some(&routes.default);
@@ -102,9 +124,9 @@ fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes, debug: bool) -> Result<
             return Err(anyhow!("GDPName not found!"));
         }
     }
-    out.set_value(result.unwrap().ip.into());
-
-    let message = "RIB Reply!".as_bytes();
+    // TTL default is 4 hours
+    let rib_response = RibResponse::new(query.gdp_name, result.unwrap().ip.into(), 14_400);
+    let message = bincode::serialize(&rib_response).unwrap();
     let offset = out.payload_offset();
     out.mbuf_mut().extend(offset, message.len())?;
     out.mbuf_mut().write_data_slice(offset, &message)?;
@@ -138,6 +160,30 @@ pub struct Routes {
 pub struct Route {
     pub ip: Ipv4Addr,
     pub mac: MacAddr,
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+pub struct RibQuery {
+    pub gdp_name: GdpName,
+}
+
+impl RibQuery {
+    pub fn new(gdp_name: GdpName) -> Self {
+        RibQuery { gdp_name }
+    }
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+pub struct RibResponse {
+    pub gdp_name: GdpName,
+    pub ip: Ipv4Addr,
+    pub ttl: u64,
+}
+
+impl RibResponse {
+    pub fn new(gdp_name: GdpName, ip: Ipv4Addr, ttl: u64) -> Self {
+        RibResponse { gdp_name, ip, ttl }
+    }
 }
 
 pub fn load_routes() -> Result<Routes> {

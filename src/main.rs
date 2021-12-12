@@ -16,12 +16,16 @@ use crate::workloads::start_client_server;
 use anyhow::Result;
 use capsule::batch::{Batch, Either, Pipeline, Poll};
 use capsule::config::RuntimeConfig;
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Udp;
 use capsule::packets::{Ethernet, Packet};
 use capsule::{PortQueue, Runtime};
 use clap::{arg_enum, clap_app, value_t};
+
+use kvs::FwdTableEntry;
 use rib::Route;
 use std::fs;
 use std::net::Ipv4Addr;
@@ -70,25 +74,24 @@ fn install_gdp_pipeline<'a>(
             }
         })
         .for_each(move |packet| {
-            // Back-cache the route to allow NACK to reflect
-            store
-                .forwarding_table
-                .put(packet.src(), packet.envelope().envelope().envelope().src());
+            // Back-cache the route for 100s to allow NACK to reflect
+            store.forwarding_table.put(
+                packet.src(),
+                FwdTableEntry::new(
+                    packet.envelope().envelope().envelope().src(),
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                        + 100,
+                ),
+            );
             Ok(())
         })
         .group_by(
             |packet| packet.action().unwrap_or(GdpAction::Noop),
             gdp_pipeline,
         )
-        .for_each(move |_packet| {
-            //println!("Sent gdp packet in NIC {:?}: {:?}", nic_name, packet);
-
-            // Record outgoing packet statistics
-            // store.with_mut_contents(|store| {
-            //     store.out_statistics.record_packet(packet);
-            // });
-            Ok(())
-        })
         .map(|packet| Ok(packet.deparse()))
         .map(encrypt_gdp)
         .send(q)
@@ -113,16 +116,20 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
     let name2 = "sw1";
     let name3 = "sw2";
 
+    let store1 = Store::new_shared();
+    let store2 = Store::new_shared();
+    let store3 = Store::new_shared();
+
     let routes: &'static Routes = Box::leak(Box::new(load_routes()?));
 
-    let (print_stats, history_map) = make_print_stats();
+    let (_print_stats, history_map) = make_print_stats();
 
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| {
             install_gdp_pipeline(
                 q.clone(),
                 rib_pipeline(false, routes),
-                Store::new(),
+                store1.sync(),
                 name1,
                 Some(Route {
                     ip: Ipv4Addr::new(10, 100, 1, 10),
@@ -130,20 +137,20 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
                 }),
             )
         })?
-        .add_pipeline_to_port("eth2", move |q| dev_schedule(q, name2, Store::new()))?
+        .add_pipeline_to_port("eth2", move |q| dev_schedule(q, name2, store2.sync()))?
         .add_pipeline_to_port("eth3", move |q| {
-            let store = Store::new();
+            let store3_local = store3.sync();
             install_gdp_pipeline(
                 q,
                 switch_pipeline(
-                    store,
+                    store3_local,
                     routes,
                     Route {
                         ip: Ipv4Addr::new(10, 100, 1, 10),
                         mac: MacAddr::new(0x02, 0x00, 0x00, 0xFF, 0xFF, 0x00),
                     },
                 ),
-                store,
+                store3_local,
                 name3,
                 Some(Route {
                     ip: Ipv4Addr::new(10, 100, 1, 12),
@@ -151,7 +158,16 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
                 }),
             )
         })?
-        .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
+        // .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
+        .add_periodic_task_to_core(
+            0,
+            move || {
+                [store1, store2, store3]
+                    .iter()
+                    .for_each(|store| store.sync().run_active_expire())
+            },
+            Duration::from_secs(1),
+        )?
         .execute()?;
 
     let x = dump_history(&(*history_map.lock().unwrap()));
@@ -199,6 +215,11 @@ fn start_prod_server(
                 install_gdp_pipeline(q, pipeline(store, routes, debug), store, "prod", node_addr)
             })?
             .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
+            .add_periodic_task_to_core(
+                0,
+                move || store.sync().run_active_expire(),
+                Duration::from_secs(1),
+            )?
             .execute()?;
         dump_history(&(*history_map.lock().unwrap()))?;
         Ok(())
