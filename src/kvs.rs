@@ -41,8 +41,8 @@ impl<K: std::cmp::Eq + std::hash::Hash, V> SharedCache<K, V> {
 
 impl<K, V> SyncCache<K, V>
 where
-    K: Eq + Hash + Copy,
-    V: Clone,
+    K: Eq + Hash + Copy+ std::fmt::Debug,
+    V: Clone+ std::fmt::Debug,
 {
     pub fn get(self: &Self, k: &K) -> Option<V> {
         let mut m = self.local.borrow_mut();
@@ -61,7 +61,9 @@ where
     pub fn put(self: &Self, k: K, v: V) {
         if !self.local.borrow().contains(&k) {
             self.local.borrow_mut().put(k, v.clone());
+            // println!("putting into global {:?}", self.global.read());
             self.global.write().unwrap().insert(k, v);
+            // println!("after putting into global {:?}", self.global.read());
         }
     }
 
@@ -144,6 +146,7 @@ impl Store {
 
         let mut global_table = self.forwarding_table.global.write().unwrap();
         while expired_proportion > 0.25 {
+            // println!("{:?} running active expire on table {:?}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap(),global_table);
             let initial_len = global_table.len();
             if initial_len <= ACTIVE_EXPIRE_CUTOFF {
                 return;
@@ -156,11 +159,13 @@ impl Store {
             let mut removed_count = 0;
             keys.iter().take(ACTIVE_EXPIRE_CUTOFF).for_each(|k| {
                 if global_table.get(k).unwrap().is_expired() {
+                    // println!("found expired entry {:?}", global_table.get(k).unwrap());
                     global_table.remove_entry(k);
                     removed_count += 1;
                 }
             });
             expired_proportion = removed_count as f64 / initial_len as f64;
+            // println!("new expired proportion {}", expired_proportion)
         }
     }
 }

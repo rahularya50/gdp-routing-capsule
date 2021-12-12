@@ -159,7 +159,7 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
                 }),
             )
         })?
-        .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
+        // .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
         .add_periodic_task_to_core(
             0,
             move || {

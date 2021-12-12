@@ -124,7 +124,8 @@ fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes, debug: bool) -> Result<
             return Err(anyhow!("GDPName not found!"));
         }
     }
-    let rib_response = RibResponse::new(query.gdp_name, result.unwrap().ip.into(), 1);
+    // TTL default is 4 hours
+    let rib_response = RibResponse::new(query.gdp_name, result.unwrap().ip.into(), 14_400);
     let message = bincode::serialize(&rib_response).unwrap();
     let offset = out.payload_offset();
     out.mbuf_mut().extend(offset, message.len())?;
