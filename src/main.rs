@@ -14,7 +14,7 @@ use crate::switch::switch_pipeline;
 use crate::workloads::dev_schedule;
 use crate::workloads::start_client_server;
 use anyhow::Result;
-use capsule::batch::{Batch, Pipeline, Poll};
+use capsule::batch::{Batch, Either, Pipeline, Poll};
 use capsule::config::RuntimeConfig;
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
@@ -60,6 +60,15 @@ fn install_gdp_pipeline<'a>(
         .map(|packet| Ok(packet.parse::<Udp<Ipv4>>()?.parse::<DTls<Ipv4>>()?))
         .map(decrypt_gdp)
         .map(|packet| Ok(packet.parse::<Gdp<Ipv4>>()?))
+        .filter_map(|mut packet| {
+            // Drop if TTL <= 1, otherwise decrement and keep forwarding
+            if packet.ttl() <= 1 {
+                Ok(Either::Drop(packet.reset()))
+            } else {
+                packet.set_ttl(packet.ttl() - 1);
+                Ok(Either::Keep(packet))
+            }
+        })
         .for_each(move |packet| {
             // Back-cache the route to allow NACK to reflect
             store
