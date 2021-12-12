@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use lru::LruCache;
 use std::hash::Hash;
 use std::net::Ipv4Addr;
 use std::sync::RwLock;
@@ -21,18 +22,18 @@ where
     K: 'static,
     V: 'static,
 {
-    local: &'static RefCell<HashMap<K, V>>,
+    local: &'static RefCell<LruCache<K, V>>,
     global: &'static RwLock<HashMap<K, V>>,
 }
 
-impl<K, V> SharedCache<K, V> {
+impl<K: std::cmp::Eq + std::hash::Hash, V> SharedCache<K, V> {
     fn new() -> Self {
         Self(Box::leak(Box::new(RwLock::new(HashMap::new()))))
     }
 
     fn sync(self: &Self) -> SyncCache<K, V> {
         SyncCache {
-            local: Box::leak(Box::new(RefCell::new(HashMap::new()))),
+            local: Box::leak(Box::new(RefCell::new(LruCache::new(500)))),
             global: self.0,
         }
     }
@@ -45,27 +46,27 @@ where
 {
     pub fn get(self: &Self, k: &K) -> Option<V> {
         let mut m = self.local.borrow_mut();
-        if m.contains_key(k) {
+        if m.contains(k) {
             return m.get(k).cloned();
         }
 
         // Otherwise must hit global cache and update local
         let g_opt = self.global.read().unwrap().get(k).cloned();
         if g_opt.is_some() {
-            m.insert(*k, g_opt.as_ref().unwrap().clone());
+            m.put(*k, g_opt.as_ref().unwrap().clone());
         }
         g_opt
     }
 
     pub fn put(self: &Self, k: K, v: V) {
-        if !self.local.borrow().contains_key(&k) {
-            self.local.borrow_mut().insert(k, v.clone());
+        if !self.local.borrow().contains(&k) {
+            self.local.borrow_mut().put(k, v.clone());
             self.global.write().unwrap().insert(k, v);
         }
     }
 
     pub fn remove(self: &Self, &k: &K) {
-        self.local.borrow_mut().remove_entry(&k);
+        self.local.borrow_mut().pop(&k);
         self.global.write().unwrap().remove_entry(&k);
     }
 }

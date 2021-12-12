@@ -19,6 +19,7 @@ doctest = false
 aes-gcm = "0.9.4"
 anyhow = "1.0"
 bincode = "1.2.1"
+lru = "0.7.0"
 capsule = "0.1"
 derivative = "2.2.0"
 tracing = "0.1"

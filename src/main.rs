@@ -140,17 +140,18 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
         })?
         .add_pipeline_to_port("eth2", move |q| dev_schedule(q, name2, store2.sync()))?
         .add_pipeline_to_port("eth3", move |q| {
+            let store3_local = store3.sync();
             install_gdp_pipeline(
                 q,
                 switch_pipeline(
-                    store3.sync(),
+                    store3_local,
                     routes,
                     Route {
                         ip: Ipv4Addr::new(10, 100, 1, 10),
                         mac: MacAddr::new(0x02, 0x00, 0x00, 0xFF, 0xFF, 0x00),
                     },
                 ),
-                store3.sync(),
+                store3_local,
                 name3,
                 Some(Route {
                     ip: Ipv4Addr::new(10, 100, 1, 12),
