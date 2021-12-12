@@ -204,6 +204,7 @@ impl<T: IpPacket> Packet for Gdp<T> {
 
         mbuf.extend(offset, GdpHeader::size_of())?;
         let header = mbuf.write_data(offset, &GdpHeader::default())?;
+        
         Ok(Gdp {
             envelope,
             header,
