@@ -75,17 +75,17 @@ fn install_gdp_pipeline<'a>(
         })
         .for_each(move |packet| {
             // Back-cache the route for 100s to allow NACK to reflect
-                store.forwarding_table.put(
-                    packet.src(),
-                    FwdTableEntry::new(
-                        packet.envelope().envelope().envelope().src(),
-                        SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs()
-                            + 100,
-                    ),
-                );
+            store.forwarding_table.put(
+                packet.src(),
+                FwdTableEntry::new(
+                    packet.envelope().envelope().envelope().src(),
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                        + 100,
+                ),
+            );
             Ok(())
         })
         .group_by(
@@ -120,10 +120,9 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
     let store2 = Store::new_shared();
     let store3 = Store::new_shared();
 
-
     let routes: &'static Routes = Box::leak(Box::new(load_routes()?));
 
-    let (print_stats, history_map) = make_print_stats();
+    let (_print_stats, history_map) = make_print_stats();
 
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| {
@@ -163,9 +162,9 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
         .add_periodic_task_to_core(
             0,
             move || {
-                [store1, store2, store3].iter().for_each(|store| {
-                    store.sync().run_active_expire()
-                })
+                [store1, store2, store3]
+                    .iter()
+                    .for_each(|store| store.sync().run_active_expire())
             },
             Duration::from_secs(1),
         )?

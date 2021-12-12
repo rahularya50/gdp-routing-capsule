@@ -67,22 +67,22 @@ pub fn create_rib_request(
 }
 
 pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store) -> Result<()> {
-        let data_slice = packet
-            .mbuf()
-            .read_data_slice(packet.payload_offset(), packet.payload_len())
-            .unwrap();
-        let data_slice_ref = unsafe { data_slice.as_ref() };
-        let response: RibResponse = bincode::deserialize(data_slice_ref).unwrap();
-        let expiration_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            + response.ttl;
-        store.forwarding_table.put(
-            response.gdp_name,
-            FwdTableEntry::new(response.ip, expiration_time),
-        );
-        
+    let data_slice = packet
+        .mbuf()
+        .read_data_slice(packet.payload_offset(), packet.payload_len())
+        .unwrap();
+    let data_slice_ref = unsafe { data_slice.as_ref() };
+    let response: RibResponse = bincode::deserialize(data_slice_ref).unwrap();
+    let expiration_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + response.ttl;
+    store.forwarding_table.put(
+        response.gdp_name,
+        FwdTableEntry::new(response.ip, expiration_time),
+    );
+
     Ok(())
 }
 

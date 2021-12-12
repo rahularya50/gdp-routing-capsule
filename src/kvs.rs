@@ -1,6 +1,6 @@
+use lru::LruCache;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use lru::LruCache;
 use std::hash::Hash;
 use std::net::Ipv4Addr;
 use std::sync::RwLock;
@@ -41,8 +41,8 @@ impl<K: std::cmp::Eq + std::hash::Hash, V> SharedCache<K, V> {
 
 impl<K, V> SyncCache<K, V>
 where
-    K: Eq + Hash + Copy+ std::fmt::Debug,
-    V: Clone+ std::fmt::Debug,
+    K: Eq + Hash + Copy + std::fmt::Debug,
+    V: Clone + std::fmt::Debug,
 {
     pub fn get(self: &Self, k: &K) -> Option<V> {
         let mut m = self.local.borrow_mut();
@@ -90,7 +90,6 @@ impl SharedStore {
             forwarding_table: self.forwarding_table.sync(),
         }
     }
-
 }
 #[derive(Copy, Clone, Debug)]
 pub struct FwdTableEntry {
