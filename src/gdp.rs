@@ -1,5 +1,6 @@
 use crate::kvs::GdpName;
 use crate::DTls;
+use derivative::Derivative;
 
 use anyhow::{anyhow, Result};
 use capsule::packets::ip::v4::Ipv4;
@@ -203,7 +204,6 @@ impl<T: IpPacket> Packet for Gdp<T> {
 
         mbuf.extend(offset, GdpHeader::size_of())?;
         let header = mbuf.write_data(offset, &GdpHeader::default())?;
-
         Ok(Gdp {
             envelope,
             header,
@@ -222,10 +222,12 @@ impl<T: IpPacket> Packet for Gdp<T> {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, SizeOf)]
+#[derive(Clone, Copy, Debug, SizeOf, Derivative)]
+#[derivative(Default)]
 #[repr(C)]
 struct GdpHeader {
     field: u16be, // nonce used to identify GDP packets
+    #[derivative(Default(value="5"))]
     ttl: u8,      // number of GDP-level hops remaining before packet is dropped
     action: u8,   // GDP_ACTION enum
     src: GdpName, // 256-bit source
