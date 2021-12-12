@@ -52,8 +52,8 @@ where
 
         // Otherwise must hit global cache and update local
         let g_opt = self.global.read().unwrap().get(k).cloned();
-        if g_opt.is_some() {
-            m.put(*k, g_opt.as_ref().unwrap().clone());
+        if let Some(ref o) = g_opt {
+            m.put(*k, o.clone());
         }
         g_opt
     }
