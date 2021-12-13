@@ -78,6 +78,10 @@ pub fn switch_pipeline(
         GdpAction::Forward => |group| {
             group
             .for_each(move |packet| {
+                println!("{} received packet with certificates {:?}", nic_name, packet.get_certs().unwrap());
+                Ok(())
+            })
+            .for_each(move |packet| {
                 // Back-cache the route for 100s to allow NACK to reflect
                 store.nack_reply_cache.put(
                     packet.src(),

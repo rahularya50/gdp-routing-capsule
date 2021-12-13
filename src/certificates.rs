@@ -1,11 +1,27 @@
+use std::net::Ipv4Addr;
+
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use signatory::ed25519::{Signature, SigningKey, VerifyingKey, ALGORITHM_ID};
 use signatory::pkcs8::{FromPrivateKey, PrivateKeyInfo};
 use signatory::signature::{Signer, Verifier};
 
-use crate::gdp::GdpMeta;
 use crate::kvs::GdpName;
 use crate::rib::Route;
+
+#[derive(Hash, Clone, Copy, Deserialize)]
+pub struct GdpMeta {
+    pub pub_key: [u8; 32], // TODO: compute hash on initialization
+}
+
+impl GdpMeta {
+    pub fn hash(self) -> GdpName {
+        let mut hasher = Sha256::new();
+        hasher.update(self.pub_key);
+        hasher.finalize().into()
+    }
+}
 
 #[derive(Clone)]
 pub struct GdpRoute {
@@ -13,6 +29,24 @@ pub struct GdpRoute {
     pub meta: GdpMeta,
     pub name: GdpName,
     pub verify_key: VerifyingKey,
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Certificate {
+    pub base: GdpName,
+    pub proxy: CertDest,
+    pub signature: [u8; 32],
+
+    /*
+        Whether we can send messages to the base via the proxy,
+        or if we should only accept messages *from* the proxy as being via the base
+    */
+    pub bidirectional: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum CertDest {
+    GdpName(GdpName),
+    IpAddr(Ipv4Addr),
 }
 
 impl GdpRoute {

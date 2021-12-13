@@ -70,6 +70,8 @@ fn prep_packet(
         reply.set_dst(GdpRoute::gdp_name_of_index(3));
     }
 
+    reply.set_data_len(payload_size);
+
     let message = MSG;
 
     let offset = reply.payload_offset();

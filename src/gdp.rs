@@ -10,12 +10,10 @@ use capsule::packets::types::u16be;
 use capsule::packets::{Internal, Packet};
 use capsule::{ensure, SizeOf};
 use derivative::Derivative;
-use generic_array::GenericArray;
-use serde::Deserialize;
-use sha2::{Digest, Sha256};
+use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
-use typenum::U32;
 
+use crate::certificates::Certificate;
 use crate::kvs::GdpName;
 use crate::DTls;
 
@@ -111,6 +109,44 @@ impl<T: IpPacket> Gdp<T> {
     pub fn set_dst(&mut self, dst: GdpName) {
         self.header_mut().dst = dst;
     }
+
+    #[inline]
+    pub fn data_len(&self) -> usize {
+        u16::from(self.header().data_len) as usize
+    }
+
+    #[inline]
+    pub fn set_data_len(&mut self, data_len: usize) {
+        self.header_mut().data_len = (data_len as u16).into();
+    }
+
+    #[inline]
+    pub fn get_certs(&self) -> Result<CertificateBlock> {
+        if (self.payload_len() - self.data_len() == 0) {
+            Ok(CertificateBlock {
+                certificates: vec![],
+            })
+        } else {
+            Ok(bincode::deserialize(unsafe {
+                self.mbuf()
+                    .read_data_slice(
+                        self.payload_offset() + self.data_len(),
+                        self.payload_len() - self.data_len(),
+                    )?
+                    .as_ref()
+            })?)
+        }
+    }
+
+    #[inline]
+    pub fn set_certs(&mut self, certificates: &CertificateBlock) -> Result<()> {
+        let serialized = bincode::serialize(certificates).unwrap(); // todo: avoid allocation, write straight into mbuf!
+        let cert_offset = self.payload_offset() + self.payload_len();
+        self.mbuf_mut().truncate(cert_offset)?;
+        self.mbuf_mut().extend(cert_offset, serialized.len())?;
+        self.mbuf_mut().write_data_slice(cert_offset, &serialized)?;
+        Ok(())
+    }
 }
 
 impl fmt::Debug for Gdp<Ipv4> {
@@ -122,6 +158,7 @@ impl fmt::Debug for Gdp<Ipv4> {
             .field("action", &self.action())
             .field("src", &self.src())
             .field("dst", &self.dst())
+            .field("data_len", &self.data_len())
             .field("ipv4_frame", ipv4)
             .field("eth_frame", ethernet)
             .finish()
@@ -216,18 +253,14 @@ struct GdpHeader {
     action: u8,   // GDP_ACTION enum
     src: GdpName, // 256-bit source
     dst: GdpName, // 256-bit destination
+    last_hop: GdpName, // most recent hop (updated on forwarding)
+
+    // size of data payload (format is header -> data -> certs)
+    // this is so we can easily append a cert without an extra copy
+    data_len: u16be,
 }
 
-#[derive(Hash, Clone, Copy, Deserialize)]
-pub struct GdpMeta {
-    pub pub_key: [u8; 32], // TODO: compute hash on initialization
-}
-
-impl GdpMeta {
-    pub fn hash(self) -> GdpName {
-        let mut hasher = Sha256::new();
-        let x: GenericArray<u8, U32> = GenericArray::clone_from_slice(&self.pub_key);
-        hasher.update(x);
-        hasher.finalize().into()
-    }
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CertificateBlock {
+    certificates: Vec<Certificate>,
 }
