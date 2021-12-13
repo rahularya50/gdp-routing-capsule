@@ -226,7 +226,7 @@ struct GdpMeta {
 impl GdpMeta {
     fn hash(self) -> [u8; 32] {
         let mut hasher = Sha256::new();
-        let x: GenericArray<u8, U32> = GenericArray::clone_from_slice(&self.pub_key]);
+        let x: GenericArray<u8, U32> = GenericArray::clone_from_slice(&self.pub_key);
         hasher.update(x);
         hasher.finalize().into()
     }

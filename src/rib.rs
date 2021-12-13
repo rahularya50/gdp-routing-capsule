@@ -200,20 +200,24 @@ pub fn load_routes() -> Result<Routes> {
     })
 }
 
-fn gen_signing_key() -> Result<SigningKey> {
-    Ok(SigningKey::from_pkcs8_private_key_info(
-        PrivateKeyInfo::new(ALGORITHM_ID, &[0u8; 32]),
-    )?)
+fn gen_keypair(seed: &[u8; 32]) -> Result<(SigningKey, VerifyingKey)> {
+    let signing_key = SigningKey::from_pkcs8_private_key_info(PrivateKeyInfo::new(ALGORITHM_ID, seed))?;
+    let verifying_key = signing_key.verifying_key();
+    Ok((signing_key, verifying_key))
 }
 
-pub fn gen_verifying_key() -> Result<VerifyingKey> {
-    Ok(gen_signing_key()?.verifying_key())
+fn sign(key: &SigningKey, msg: &[u8]) -> Signature {
+    Signature::new(key.sign(msg).to_bytes())
 }
 
 pub fn test_signatures(msg: &'_ [u8]) -> Result<&'_ [u8]> {
-    let signature = gen_signing_key()?.sign(msg);
-    let encoded_signature = signature.to_bytes();
-    let decoded_signature = Signature::new(encoded_signature);
-    gen_verifying_key()?.verify(msg, &decoded_signature)?;
+    let seed = [0u8; 32];
+    let (sig_key, verify_key) = gen_keypair(&seed)?;
+    let verify_bytes = verify_key.to_bytes();
+    let verify_key = VerifyingKey::from_bytes(&verify_bytes)?;
+    let sig = sign(&sig_key, &msg);
+    let enc_sig = sig.to_bytes();
+    let dec_sig = Signature::new(enc_sig);
+    verify_key.verify(msg, &dec_sig)?;
     Ok(msg)
 }
