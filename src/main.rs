@@ -49,7 +49,7 @@ fn install_gdp_pipeline<'a>(
     q: PortQueue,
     gdp_pipeline: impl GdpPipeline,
     store: Store,
-    _nic_name: &'a str,
+    nic_name: &'a str,
     node_addr: Option<Route>,
 ) -> impl Pipeline + 'a {
     Poll::new(q.clone())
@@ -64,6 +64,10 @@ fn install_gdp_pipeline<'a>(
         .map(|packet| Ok(packet.parse::<Udp<Ipv4>>()?.parse::<DTls<Ipv4>>()?))
         .map(decrypt_gdp)
         .map(|packet| Ok(packet.parse::<Gdp<Ipv4>>()?))
+        .for_each(move |packet| {
+            println!("handling packet in {}", nic_name);
+            Ok(())
+        })
         .filter_map(|mut packet| {
             // Drop if TTL <= 1, otherwise decrement and keep forwarding
             if packet.ttl() <= 1 {

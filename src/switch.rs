@@ -93,6 +93,7 @@ pub fn switch_pipeline(
                         group.filter_map(move |packet| {
                             let ip = find_destination(&packet, store).unwrap();
                             let mac = routes.routes.get(&packet.dst()).unwrap_or(&routes.default).mac; // FIXME - this is a hack!!!
+                            println!("forwarding to ip {} mac {}", ip, mac);
                             forward_gdp(packet, Route {ip, mac})
                         })
                     }
