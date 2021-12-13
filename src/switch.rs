@@ -79,10 +79,12 @@ fn bounce_gdp(mut gdp: Gdp<Ipv4>) -> Result<Gdp<Ipv4>> {
     Ok(gdp)
 }
 
-pub fn switch_pipeline(
+pub fn switch_pipeline<'a>(
     store: Store,
+    nic_name: &'static str,
     routes: &'static Routes,
     rib_route: Route,
+    debug: bool,
 ) -> impl GdpPipeline {
     pipeline! {
         GdpAction::Forward => |group| {
@@ -93,7 +95,9 @@ pub fn switch_pipeline(
                         group.filter_map(move |packet| {
                             let ip = find_destination(&packet, store).unwrap();
                             let mac = routes.routes.get(&packet.dst()).unwrap_or(&routes.default).mac; // FIXME - this is a hack!!!
-                            println!("forwarding to ip {} mac {}", ip, mac);
+                            if debug {
+                                println!("{} forwarding packet to ip {} mac {}", nic_name, ip, mac);
+                            }
                             forward_gdp(packet, Route {ip, mac})
                         })
                     }
@@ -103,7 +107,9 @@ pub fn switch_pipeline(
                         .inject(move |packet| {
                             let src_ip = packet.envelope().envelope().envelope().src();
                             let src_mac = packet.envelope().envelope().envelope().envelope().src();
-                            // println!("Querying RIB for destination {:?}", packet.dst());
+                            if debug {
+                                println!("{} querying RIB for destination {:?}", nic_name, packet.dst());
+                            }
                             create_rib_request(Mbuf::new()?, packet.dst(), src_mac, src_ip, rib_route)
                         })
                     }

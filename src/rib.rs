@@ -85,7 +85,13 @@ pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store) -> Result<()> {
     Ok(())
 }
 
-fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes, debug: bool) -> Result<Gdp<Ipv4>> {
+fn handle_rib_query(
+    packet: &Gdp<Ipv4>,
+    nic_name: &str,
+    routes: &Routes,
+    use_default: bool,
+    debug: bool,
+) -> Result<Gdp<Ipv4>> {
     // read the query payload
     let data_slice = packet
         .mbuf()
@@ -117,11 +123,17 @@ fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes, debug: bool) -> Result<
     out.set_action(GdpAction::RibReply);
     let mut result: Option<&Route> = routes.routes.get(&query.gdp_name);
     if result.is_none() {
-        if debug {
+        if use_default {
             result = Some(&routes.default);
         } else {
             return Err(anyhow!("GDPName not found!"));
         }
+    }
+    if debug {
+        println!(
+            "{} replying to query looking up {}",
+            nic_name, query.gdp_name
+        );
     }
     // TTL default is 4 hours
     let rib_response = RibResponse::new(query.gdp_name, result.unwrap().ip, 14_400);
@@ -134,10 +146,15 @@ fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes, debug: bool) -> Result<
     Ok(out)
 }
 
-pub fn rib_pipeline(debug: bool, routes: &'static Routes) -> impl GdpPipeline {
+pub fn rib_pipeline(
+    nic_name: &'static str,
+    routes: &'static Routes,
+    use_default: bool,
+    debug: bool,
+) -> impl GdpPipeline {
     pipeline! {
         GdpAction::RibGet => |group| {
-            group.replace(move |packet| handle_rib_query(packet, routes, debug))
+            group.replace(move |packet| handle_rib_query(packet, nic_name, routes, use_default, debug))
         }
         _ => |group| {group.filter(|_| false)}
     }
@@ -155,6 +172,7 @@ pub struct Routes {
     pub rib: Route,
     pub default: Route,
 }
+
 #[derive(Clone, Copy, Deserialize)]
 pub struct Route {
     pub ip: Ipv4Addr,
