@@ -14,6 +14,11 @@ use std::fmt;
 use std::ptr::NonNull;
 use strum_macros::EnumIter;
 
+use sha2::{Sha256, Digest};
+use std::hash::Hash;
+use generic_array::{GenericArray};
+use typenum::U32;
+
 const MAGIC_NUMBERS: u16 = u16::from_be_bytes([0x26, 0x2a]);
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, EnumIter)]
@@ -211,4 +216,18 @@ struct GdpHeader {
     action: u8,   // GDP_ACTION enum
     src: GdpName, // 256-bit source
     dst: GdpName, // 256-bit destination
+}
+ 
+#[derive(Hash)]
+struct GdpMeta {
+    pub_key: [u8; 32]
+}
+
+impl GdpMeta {
+    fn hash(self) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        let x: GenericArray<u8, U32> = GenericArray::clone_from_slice(&self.pub_key]);
+        hasher.update(x);
+        hasher.finalize().into()
+    }
 }

@@ -42,3 +42,6 @@ pin-project = "1.0.8"
 metrics-core = "0.5"
 metrics-observer-yaml = "0.1"
 metrics-runtime = { version = "0.13", default-features = false }
+sha2 = "0.10.0"
+generic-array = "0.14.4"
+typenum = "1.12.0"
