@@ -8,7 +8,6 @@ use crate::FwdTableEntry;
 use crate::GdpPipeline;
 use anyhow::{anyhow, Result};
 
-use bincode;
 use capsule::batch::Batch;
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
@@ -125,7 +124,7 @@ fn handle_rib_query(packet: &Gdp<Ipv4>, routes: &Routes, debug: bool) -> Result<
         }
     }
     // TTL default is 4 hours
-    let rib_response = RibResponse::new(query.gdp_name, result.unwrap().ip.into(), 14_400);
+    let rib_response = RibResponse::new(query.gdp_name, result.unwrap().ip, 14_400);
     let message = bincode::serialize(&rib_response).unwrap();
     let offset = out.payload_offset();
     out.mbuf_mut().extend(offset, message.len())?;
@@ -211,8 +210,7 @@ pub fn gen_verifying_key() -> Result<VerifyingKey> {
     Ok(gen_signing_key()?.verifying_key())
 }
 
-pub fn test_signatures<'a>(_msg: &'a [u8]) -> Result<&'a [u8]> {
-    let msg = b"Hello, world!";
+pub fn test_signatures(msg: &'_ [u8]) -> Result<&'_ [u8]> {
     let signature = gen_signing_key()?.sign(msg);
     let encoded_signature = signature.to_bytes();
     let decoded_signature = Signature::new(encoded_signature);

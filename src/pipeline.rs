@@ -23,7 +23,7 @@ macro_rules! __move_compose {
 
 pub fn constrain<T, F>(f: F) -> F
 where
-    F: for<'a> FnOnce(&'a mut GdpMap<T>) -> (),
+    F: for<'a> FnOnce(&'a mut GdpMap<T>),
 {
     f
 }

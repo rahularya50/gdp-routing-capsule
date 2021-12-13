@@ -31,7 +31,7 @@ impl<K: std::cmp::Eq + std::hash::Hash, V> SharedCache<K, V> {
         Self(Box::leak(Box::new(RwLock::new(HashMap::new()))))
     }
 
-    fn sync(self: &Self) -> SyncCache<K, V> {
+    fn sync(&self) -> SyncCache<K, V> {
         SyncCache {
             local: Box::leak(Box::new(RefCell::new(LruCache::new(500)))),
             global: self.0,
@@ -44,7 +44,7 @@ where
     K: Eq + Hash + Copy + std::fmt::Debug,
     V: Clone + std::fmt::Debug,
 {
-    pub fn get(self: &Self, k: &K) -> Option<V> {
+    pub fn get(&self, k: &K) -> Option<V> {
         let mut m = self.local.borrow_mut();
         if m.contains(k) {
             return m.get(k).cloned();
@@ -58,7 +58,7 @@ where
         g_opt
     }
 
-    pub fn put(self: &Self, k: K, v: V) {
+    pub fn put(&self, k: K, v: V) {
         if !self.local.borrow().contains(&k) {
             self.local.borrow_mut().put(k, v.clone());
             // println!("putting into global {:?}", self.global.read());
@@ -67,7 +67,7 @@ where
         }
     }
 
-    pub fn remove(self: &Self, &k: &K) {
+    pub fn remove(&self, &k: &K) {
         self.local.borrow_mut().pop(&k);
         self.global.write().unwrap().remove_entry(&k);
     }
@@ -85,7 +85,7 @@ impl SharedStore {
         }
     }
 
-    pub fn sync(self: &Self) -> Store {
+    pub fn sync(&self) -> Store {
         Store {
             forwarding_table: self.forwarding_table.sync(),
         }
@@ -109,11 +109,6 @@ impl FwdTableEntry {
         Duration::from_secs(self.expiration_time)
             < SystemTime::now().duration_since(UNIX_EPOCH).unwrap()
     }
-}
-
-pub struct StoreContents {
-    // Mapping from GDPName to target IP and expiration time in Unix epoch
-    pub forwarding_table: HashMap<GdpName, FwdTableEntry>,
 }
 
 #[derive(Copy, Clone)]
@@ -140,7 +135,7 @@ impl Store {
 
            Specifically for edge case of <= 20 keys we just don't active expire
         */
-        let ACTIVE_EXPIRE_CUTOFF = 20;
+        const ACTIVE_EXPIRE_CUTOFF: usize = 20;
         let mut expired_proportion = 1.0;
 
         let mut global_table = self.forwarding_table.global.write().unwrap();

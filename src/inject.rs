@@ -44,7 +44,7 @@ where
         } else {
             self.batch.next().map(|disp| match disp {
                 Disposition::Act(packet) => (self.f)(&packet).map_or_else(
-                    |e| Disposition::Abort(e),
+                    Disposition::Abort,
                     |new| {
                         self.slot.replace(new);
                         Disposition::Act(packet)

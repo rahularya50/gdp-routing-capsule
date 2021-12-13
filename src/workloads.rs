@@ -1,7 +1,7 @@
 use crate::dtls::{encrypt_gdp, DTls};
 use crate::gdp::Gdp;
 use crate::gdp::GdpAction;
-use crate::kvs::{GdpName, Store};
+use crate::kvs::{GdpName};
 use crate::schedule::Schedule;
 use crate::startup_route_lookup;
 use rand::Rng;
@@ -99,7 +99,7 @@ fn send_initial_packets(
     num_packets: usize,
     payload_size: usize,
     random_dest_chance: f32,
-) -> () {
+) {
     let src_mac = q.mac_addr();
     batch::poll_fn(|| Mbuf::alloc_bulk(num_packets).unwrap())
         .map(move |packet| {
@@ -123,7 +123,7 @@ fn send_initial_packet(q: PortQueue, nic_name: &str, src_ip: Ipv4Addr, switch_ro
     send_initial_packets(q, nic_name, src_ip, switch_route, 1, 800, 0.0);
 }
 
-pub fn dev_schedule(q: PortQueue, name: &str, _store: Store) -> impl Pipeline + '_ {
+pub fn dev_schedule(q: PortQueue, name: &str) -> impl Pipeline + '_ {
     let src_ip = Ipv4Addr::new(10, 100, 1, 11);
     let switch_ip = Ipv4Addr::new(10, 100, 1, 12);
     let switch_mac = MacAddr::new(0x02, 0x00, 0x00, 0xff, 0xff, 0x02);
@@ -151,15 +151,15 @@ fn client_schedule(q: PortQueue, name: &str, src_ip: Ipv4Addr) -> impl Pipeline 
 
 fn flood_single(q: PortQueue, name: &str, src_ip: Ipv4Addr) -> impl Pipeline + '_ {
     let switch_route = startup_route_lookup(2).unwrap();
-    let test_conf = load_test_config().unwrap_or_else(|_| TestConfig {
+    let test_conf = load_test_config().unwrap_or(TestConfig {
         payload_size: 800,
         random_dest_chance: 0.0,
     });
     let payload_size = test_conf.payload_size;
     let random_dest_chance = test_conf.random_dest_chance;
     println!(
-        "Running test {} with payload size {}, random dest chance {}",
-        "flood_single", payload_size, random_dest_chance
+        "Running test flood_single with payload size {}, random dest chance {}",
+        payload_size, random_dest_chance
     );
     Schedule::new(name, async move {
         for _i in 0..100000 {
@@ -179,7 +179,8 @@ fn flood_single(q: PortQueue, name: &str, src_ip: Ipv4Addr) -> impl Pipeline + '
 
 pub fn start_client_server(config: RuntimeConfig, gdp_name: GdpName) -> Result<()> {
     let (print_stats, history_map) = make_print_stats();
-    let src_route = startup_route_lookup(gdp_name).ok_or(anyhow!("Invalid client GDPName!"))?;
+    let src_route =
+        startup_route_lookup(gdp_name).ok_or_else(|| anyhow!("Invalid client GDPName!"))?;
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| flood_single(q, "client", src_route.ip))?
         .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
