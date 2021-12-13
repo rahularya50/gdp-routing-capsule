@@ -1,5 +1,3 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use capsule::batch::{Batch, Either, Pipeline, Poll};
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Ethernet, Packet, Udp};
@@ -7,14 +5,14 @@ use capsule::PortQueue;
 
 use crate::dtls::{decrypt_gdp, encrypt_gdp, DTls};
 use crate::gdp::{Gdp, GdpAction};
-use crate::kvs::{FwdTableEntry, Store};
+use crate::kvs::Store;
 use crate::pipeline::GdpPipeline;
 use crate::rib::Route;
 
 pub fn install_gdp_pipeline(
     q: PortQueue,
     gdp_pipeline: impl GdpPipeline,
-    store: Store,
+    _store: Store,
     nic_name: &'_ str,
     node_addr: Option<Route>,
     debug: bool,
@@ -45,21 +43,6 @@ pub fn install_gdp_pipeline(
                 packet.set_ttl(packet.ttl() - 1);
                 Ok(Either::Keep(packet))
             }
-        })
-        .for_each(move |packet| {
-            // Back-cache the route for 100s to allow NACK to reflect
-            store.forwarding_table.put(
-                packet.src(),
-                FwdTableEntry::new(
-                    packet.envelope().envelope().envelope().src(),
-                    SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs()
-                        + 100,
-                ),
-            );
-            Ok(())
         })
         .group_by(
             |packet| packet.action().unwrap_or(GdpAction::Noop),

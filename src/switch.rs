@@ -1,4 +1,5 @@
 use std::net::Ipv4Addr;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use capsule::batch::{Batch, Either};
@@ -11,15 +12,9 @@ use crate::gdpbatch::GdpBatch;
 use crate::kvs::Store;
 use crate::pipeline::GdpPipeline;
 use crate::rib::{create_rib_request, handle_rib_reply, Routes};
-use crate::{pipeline, Route};
+use crate::{pipeline, FwdTableEntry, Route};
 
 fn find_destination(gdp: &Gdp<Ipv4>, store: Store) -> Option<Ipv4Addr> {
-    // lazy expire on read
-    if let Some(o) = store.forwarding_table.get(&gdp.dst()) {
-        if o.is_expired() {
-            store.forwarding_table.remove(&gdp.dst());
-        }
-    }
     store.forwarding_table.get(&gdp.dst()).map(|x| x.ip)
 }
 
@@ -81,7 +76,23 @@ pub fn switch_pipeline(
 ) -> impl GdpPipeline {
     pipeline! {
         GdpAction::Forward => |group| {
-            group.group_by(
+            group
+            .for_each(move |packet| {
+                // Back-cache the route for 100s to allow NACK to reflect
+                store.nack_reply_cache.put(
+                    packet.src(),
+                    FwdTableEntry::new(
+                        packet.envelope().envelope().envelope().src(),
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs()
+                            + 100,
+                    ),
+                );
+                Ok(())
+            })
+            .group_by(
                 move |packet| find_destination(packet, store).is_some(),
                 pipeline! {
                     true => |group| {
@@ -111,6 +122,16 @@ pub fn switch_pipeline(
         GdpAction::RibReply => |group| {
             group.for_each(move |packet| handle_rib_reply(packet, store))
                 .filter(|_| false)
+        }
+        GdpAction::Nack => |group| {
+            group.filter_map(move |packet| {
+                let route = store.nack_reply_cache.get(&packet.src());
+                let mac = routes.routes.get(&packet.dst()).unwrap_or(&routes.default).route.mac; // FIXME - this is a hack!!!
+                match route {
+                    Some(FwdTableEntry { ip, .. }) => forward_gdp(packet, Route { ip, mac }),
+                    None => Ok(Either::Drop(packet.reset())),
+                }
+            })
         }
         _ => |group| {group.filter(|_| false)}
     }

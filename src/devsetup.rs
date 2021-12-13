@@ -69,7 +69,7 @@ pub fn start_dev_server(config: RuntimeConfig) -> Result<()> {
             move || {
                 [store1, store2, store3]
                     .iter()
-                    .for_each(|store| store.sync().run_active_expire())
+                    .for_each(|store| store.run_active_expire())
             },
             Duration::from_secs(1),
         )?

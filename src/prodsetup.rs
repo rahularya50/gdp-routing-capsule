@@ -58,7 +58,7 @@ pub fn start_prod_server(
             .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
             .add_periodic_task_to_core(
                 0,
-                move || store.sync().run_active_expire(),
+                move || store.run_active_expire(),
                 Duration::from_secs(1),
             )?
             .execute()?;
