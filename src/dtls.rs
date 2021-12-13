@@ -1,15 +1,15 @@
-use crate::Ipv4;
-use aes_gcm::aead::{Aead, NewAead};
-use aes_gcm::{Aes256Gcm, Key, Nonce};
-use anyhow::{anyhow, Result};
-use capsule::debug;
-use capsule::packets::ip::IpPacket;
-use capsule::SizeOf;
-use rand::Rng;
 use std::fmt;
 use std::ptr::NonNull;
 
+use aes_gcm::aead::{Aead, NewAead};
+use aes_gcm::{Aes256Gcm, Key, Nonce};
+use anyhow::{anyhow, Result};
+use capsule::packets::ip::IpPacket;
 use capsule::packets::{Internal, Packet, Udp};
+use capsule::{debug, SizeOf};
+use rand::Rng;
+
+use crate::Ipv4;
 
 pub struct DTls<T: IpPacket> {
     envelope: Udp<T>,

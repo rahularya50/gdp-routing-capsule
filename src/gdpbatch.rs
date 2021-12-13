@@ -1,6 +1,7 @@
-use crate::inject::Inject;
 use anyhow::Result;
 use capsule::batch::Batch;
+
+use crate::inject::Inject;
 
 pub trait GdpBatch: Batch {
     fn inject<F>(self, f: F) -> Inject<Self, F>

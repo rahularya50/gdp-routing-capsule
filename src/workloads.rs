@@ -1,32 +1,23 @@
-use crate::dtls::{encrypt_gdp, DTls};
-use crate::gdp::Gdp;
-use crate::gdp::GdpAction;
-use crate::kvs::{GdpName};
-use crate::schedule::Schedule;
-use crate::startup_route_lookup;
-use rand::Rng;
 use std::fs;
+use std::net::Ipv4Addr;
+use std::time::Duration;
 
-use crate::statistics::make_print_stats;
-use crate::Route;
-use serde::Deserialize;
-
-use crate::dump_history;
 use anyhow::{anyhow, Result};
 use capsule::batch::{self, Batch, Pipeline};
 use capsule::config::RuntimeConfig;
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
-use capsule::packets::Udp;
-use capsule::packets::{Ethernet, Packet};
-use capsule::Mbuf;
-use capsule::PortQueue;
-use capsule::Runtime;
-
-use std::net::Ipv4Addr;
-
-use std::time::Duration;
+use capsule::packets::{Ethernet, Packet, Udp};
+use capsule::{Mbuf, PortQueue, Runtime};
+use rand::Rng;
+use serde::Deserialize;
 use tokio_timer::delay_for;
+
+use crate::dtls::{encrypt_gdp, DTls};
+use crate::gdp::{Gdp, GdpAction};
+use crate::schedule::Schedule;
+use crate::statistics::make_print_stats;
+use crate::{dump_history, startup_route_lookup, GdpRoute, Route};
 
 const MSG: &[u8] = &[b'A'; 10000];
 
@@ -75,7 +66,7 @@ fn prep_packet(
     if rval < random_dest_chance {
         reply.set_dst(rng.gen());
     } else {
-        reply.set_dst(3);
+        reply.set_dst(GdpRoute::gdp_name_of_index(3));
     }
 
     let message = MSG;
@@ -177,10 +168,10 @@ fn flood_single(q: PortQueue, name: &str, src_ip: Ipv4Addr) -> impl Pipeline + '
     })
 }
 
-pub fn start_client_server(config: RuntimeConfig, gdp_name: GdpName) -> Result<()> {
+pub fn start_client_server(config: RuntimeConfig, gdp_index: u8) -> Result<()> {
     let (print_stats, history_map) = make_print_stats();
     let src_route =
-        startup_route_lookup(gdp_name).ok_or_else(|| anyhow!("Invalid client GDPName!"))?;
+        startup_route_lookup(gdp_index).ok_or_else(|| anyhow!("Invalid client GDPName!"))?;
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| flood_single(q, "client", src_route.ip))?
         .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?

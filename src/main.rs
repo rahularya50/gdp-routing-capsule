@@ -1,37 +1,31 @@
 #![feature(array_methods)]
+#![feature(destructuring_assignment)]
 
-use crate::dtls::{decrypt_gdp, encrypt_gdp, DTls};
-use crate::gdp::Gdp;
-use crate::gdp::GdpAction;
-use crate::kvs::{GdpName, Store};
-use crate::pipeline::GdpPipeline;
-use crate::rib::load_routes;
-use crate::rib::rib_pipeline;
-use crate::rib::test_signatures;
-use crate::rib::Routes;
-use crate::statistics::{dump_history, make_print_stats};
-use crate::switch::switch_pipeline;
-use crate::workloads::dev_schedule;
-use crate::workloads::start_client_server;
+use std::fs;
+use std::net::Ipv4Addr;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 use anyhow::Result;
 use capsule::batch::{Batch, Either, Pipeline, Poll};
 use capsule::config::RuntimeConfig;
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
-use capsule::packets::Udp;
-use capsule::packets::{Ethernet, Packet};
+use capsule::packets::{Ethernet, Packet, Udp};
 use capsule::{PortQueue, Runtime};
 use clap::{arg_enum, clap_app, value_t};
-
 use kvs::FwdTableEntry;
 use rib::Route;
-use std::fs;
-use std::net::Ipv4Addr;
-use std::time::Duration;
 use tracing::Level;
 use tracing_subscriber::fmt;
+
+use crate::dtls::{decrypt_gdp, encrypt_gdp, DTls};
+use crate::gdp::{Gdp, GdpAction};
+use crate::kvs::Store;
+use crate::pipeline::GdpPipeline;
+use crate::rib::{load_routes, rib_pipeline, test_signatures, GdpRoute, Routes};
+use crate::statistics::{dump_history, make_print_stats};
+use crate::switch::switch_pipeline;
+use crate::workloads::{dev_schedule, start_client_server};
 
 mod dtls;
 mod gdp;
@@ -183,19 +177,23 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
     x
 }
 
-pub fn startup_route_lookup(gdp_name: GdpName) -> Option<Route> {
+pub fn startup_route_lookup(index: u8) -> Option<Route> {
     // FIXME: this is an awful hack, we shouldn't need to read the RIB to get our IP addr!
-    load_routes()
-        .ok()?
-        .routes
-        .get(&gdp_name)
-        .map(|route| route.to_owned())
+    let gdp_name = GdpRoute::gdp_name_of_index(index);
+    Some(
+        load_routes()
+            .ok()?
+            .routes
+            .get(&gdp_name)
+            .map(|route| route.to_owned())?
+            .route,
+    )
 }
 
 fn start_prod_server(
     config: RuntimeConfig,
     mode: ProdMode,
-    gdp_name: Option<GdpName>,
+    gdp_index: Option<u8>,
     use_default: bool,
 ) -> Result<()> {
     fn create_rib(_store: Store, routes: &'static Routes, use_default: bool) -> impl GdpPipeline {
@@ -208,11 +206,11 @@ fn start_prod_server(
 
     fn start<T: GdpPipeline + 'static>(
         config: RuntimeConfig,
-        gdp_name: Option<GdpName>,
+        gdp_index: Option<u8>,
         use_default: bool,
         pipeline: fn(Store, &'static Routes, bool) -> T,
     ) -> Result<()> {
-        let node_addr = gdp_name.and_then(startup_route_lookup);
+        let node_addr = gdp_index.and_then(startup_route_lookup);
 
         let store = Store::new_shared();
         let (print_stats, history_map) = make_print_stats();
@@ -242,8 +240,8 @@ fn start_prod_server(
     }
 
     match mode {
-        ProdMode::Router => start(config, gdp_name, use_default, create_rib),
-        ProdMode::Switch => start(config, gdp_name, use_default, create_switch),
+        ProdMode::Router => start(config, gdp_index, use_default, create_rib),
+        ProdMode::Switch => start(config, gdp_index, use_default, create_switch),
     }
 }
 
@@ -278,7 +276,7 @@ fn main() -> Result<()> {
     let content = fs::read_to_string(path)?;
     let config = toml::from_str(&content)?;
 
-    let gdp_name = value_t!(matches, "name", GdpName);
+    let gdp_name = value_t!(matches, "name", u8);
 
     match mode {
         Mode::Dev => start_dev_server(config),

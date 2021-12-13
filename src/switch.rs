@@ -1,24 +1,17 @@
-use crate::gdp::Gdp;
-use crate::gdp::GdpAction;
-use crate::gdpbatch::GdpBatch;
-use crate::kvs::Store;
-
-use crate::pipeline;
-use crate::pipeline::GdpPipeline;
-use crate::rib::create_rib_request;
-use crate::rib::handle_rib_reply;
-use crate::rib::Routes;
-use crate::Route;
+use std::net::Ipv4Addr;
 
 use anyhow::Result;
-use capsule::batch::Batch;
-use capsule::batch::Either;
+use capsule::batch::{Batch, Either};
 use capsule::packets::ip::v4::Ipv4;
-use capsule::packets::Packet;
-use capsule::packets::Udp;
+use capsule::packets::{Packet, Udp};
 use capsule::Mbuf;
 
-use std::net::Ipv4Addr;
+use crate::gdp::{Gdp, GdpAction};
+use crate::gdpbatch::GdpBatch;
+use crate::kvs::Store;
+use crate::pipeline::GdpPipeline;
+use crate::rib::{create_rib_request, handle_rib_reply, Routes};
+use crate::{pipeline, Route};
 
 fn find_destination(gdp: &Gdp<Ipv4>, store: Store) -> Option<Ipv4Addr> {
     // lazy expire on read
@@ -79,7 +72,7 @@ fn bounce_gdp(mut gdp: Gdp<Ipv4>) -> Result<Gdp<Ipv4>> {
     Ok(gdp)
 }
 
-pub fn switch_pipeline<'a>(
+pub fn switch_pipeline(
     store: Store,
     nic_name: &'static str,
     routes: &'static Routes,
@@ -94,7 +87,7 @@ pub fn switch_pipeline<'a>(
                     true => |group| {
                         group.filter_map(move |packet| {
                             let ip = find_destination(&packet, store).unwrap();
-                            let mac = routes.routes.get(&packet.dst()).unwrap_or(&routes.default).mac; // FIXME - this is a hack!!!
+                            let mac = routes.routes.get(&packet.dst()).unwrap_or(&routes.default).route.mac; // FIXME - this is a hack!!!
                             if debug {
                                 println!("{} forwarding packet to ip {} mac {}", nic_name, ip, mac);
                             }

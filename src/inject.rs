@@ -1,6 +1,5 @@
 use anyhow::Result;
-use capsule::batch::Batch;
-use capsule::batch::Disposition;
+use capsule::batch::{Batch, Disposition};
 
 #[allow(missing_debug_implementations)]
 pub struct Inject<B: Batch, F>
@@ -43,13 +42,12 @@ where
             Some(Disposition::Act(pkt))
         } else {
             self.batch.next().map(|disp| match disp {
-                Disposition::Act(packet) => (self.f)(&packet).map_or_else(
-                    Disposition::Abort,
-                    |new| {
+                Disposition::Act(packet) => {
+                    (self.f)(&packet).map_or_else(Disposition::Abort, |new| {
                         self.slot.replace(new);
                         Disposition::Act(packet)
-                    },
-                ),
+                    })
+                }
                 Disposition::Emit => Disposition::Emit,
                 Disposition::Drop(mbuf) => Disposition::Drop(mbuf),
                 Disposition::Abort(err) => Disposition::Abort(err),

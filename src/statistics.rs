@@ -1,18 +1,14 @@
-use capsule::metrics;
-
-use metrics_core::{Builder, Observe};
-use metrics_observer_yaml::YamlBuilder;
-use metrics_runtime::Measurement::Counter;
 use std::collections::HashMap;
-
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::LineWriter;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
-
-use std::sync::Arc;
-use std::sync::Mutex;
+use capsule::metrics;
+use metrics_core::{Builder, Observe};
+use metrics_observer_yaml::YamlBuilder;
+use metrics_runtime::Measurement::Counter;
 
 fn print_stats_diff(
     current_m: &mut HashMap<String, u64>,

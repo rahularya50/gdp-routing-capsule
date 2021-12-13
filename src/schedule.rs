@@ -1,8 +1,9 @@
-use capsule::batch::Pipeline;
-use pin_project::pin_project;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+use capsule::batch::Pipeline;
+use pin_project::pin_project;
 
 #[pin_project]
 pub struct Schedule<'a, T: Future<Output = ()>> {

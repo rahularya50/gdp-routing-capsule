@@ -1,4 +1,3 @@
-use lru::LruCache;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -6,6 +5,7 @@ use std::net::Ipv4Addr;
 use std::sync::RwLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use lru::LruCache;
 use rand::prelude::SliceRandom;
 
 pub type GdpName = [u8; 32];

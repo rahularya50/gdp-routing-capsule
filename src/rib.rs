@@ -1,31 +1,23 @@
-use crate::dtls::DTls;
-use crate::gdp::{Gdp, GdpAction, GdpMeta};
-use crate::kvs::GdpName;
-use crate::kvs::Store;
-use crate::pipeline;
-use crate::FwdTableEntry;
-use crate::GdpPipeline;
-use anyhow::{anyhow, Result};
-
-use capsule::batch::Batch;
-use capsule::net::MacAddr;
-use capsule::packets::ip::v4::Ipv4;
-use capsule::packets::Udp;
-use capsule::packets::{Ethernet, Packet};
-use capsule::Mbuf;
-use serde::{Deserialize, Serialize};
-use signatory::ed25519::Signature;
-use signatory::ed25519::SigningKey;
-use signatory::ed25519::VerifyingKey;
-use signatory::ed25519::ALGORITHM_ID;
-use signatory::pkcs8::FromPrivateKey;
-use signatory::pkcs8::PrivateKeyInfo;
-use signatory::signature::Signer;
-use signatory::signature::Verifier;
 use std::collections::HashMap;
 use std::fs;
 use std::net::Ipv4Addr;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use anyhow::{anyhow, Result};
+use capsule::batch::Batch;
+use capsule::net::MacAddr;
+use capsule::packets::ip::v4::Ipv4;
+use capsule::packets::{Ethernet, Packet, Udp};
+use capsule::Mbuf;
+use serde::{Deserialize, Serialize};
+use signatory::ed25519::{Signature, SigningKey, VerifyingKey, ALGORITHM_ID};
+use signatory::pkcs8::{FromPrivateKey, PrivateKeyInfo};
+use signatory::signature::{Signer, Verifier};
+
+use crate::dtls::DTls;
+use crate::gdp::{Gdp, GdpAction, GdpMeta};
+use crate::kvs::{GdpName, Store};
+use crate::{pipeline, FwdTableEntry, GdpPipeline};
 
 const RIB_PORT: u16 = 27182;
 
@@ -120,7 +112,7 @@ fn handle_rib_query(
 
     let mut out = out.push::<Gdp<Ipv4>>()?;
     out.set_action(GdpAction::RibReply);
-    let mut result: Option<&Route> = routes.routes.get(&query.gdp_name);
+    let mut result: Option<&GdpRoute> = routes.routes.get(&query.gdp_name);
     if result.is_none() {
         if use_default {
             result = Some(&routes.default);
@@ -130,12 +122,12 @@ fn handle_rib_query(
     }
     if debug {
         println!(
-            "{} replying to query looking up {}",
+            "{} replying to query looking up {:?}",
             nic_name, query.gdp_name
         );
     }
     // TTL default is 4 hours
-    let rib_response = RibResponse::new(query.gdp_name, result.unwrap().ip, 14_400);
+    let rib_response = RibResponse::new(query.gdp_name, result.unwrap().route.ip, 14_400);
     let message = bincode::serialize(&rib_response).unwrap();
     let offset = out.payload_offset();
     out.mbuf_mut().extend(offset, message.len())?;
@@ -167,7 +159,7 @@ struct SerializedRoutes {
 }
 
 pub struct Routes {
-    pub routes: HashMap<u8, GdpRoute>,
+    pub routes: HashMap<GdpName, GdpRoute>,
     pub rib: Route,
     pub default: GdpRoute,
 }
@@ -175,27 +167,36 @@ pub struct Routes {
 #[derive(Clone, Copy, Deserialize)]
 pub struct Route {
     pub ip: Ipv4Addr,
-    pub mac: MacAddr
+    pub mac: MacAddr,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone)]
 pub struct GdpRoute {
     pub route: Route,
     pub meta: GdpMeta,
     pub name: GdpName,
-    pub sign_key: SigningKey,
-    pub verify_key: VerifyingKey
+    pub verify_key: VerifyingKey,
 }
 
 impl GdpRoute {
-    fn from_serial_entry(name: u32, route: Route) -> GdpRoute {
-        // TODO: fixme
-        let mut route: GdpRoute;
-        route.route = route;
-        (route.sign_key, route.verify_key) = gen_keypair_u32(name).unwrap();
-        route.meta = GdpMeta { pub_key: route.verify_key.to_bytes() };
-        route.name = route.meta.hash();
-        return route;
+    pub fn gdp_name_of_index(index: u8) -> GdpName {
+        let (_, verify_key) = gen_keypair_u8(index).unwrap();
+        GdpMeta {
+            pub_key: verify_key.to_bytes(),
+        }
+        .hash()
+    }
+    pub fn from_serial_entry(index: u8, route: Route) -> Self {
+        let (_, verify_key) = gen_keypair_u8(index).unwrap();
+        let meta = GdpMeta {
+            pub_key: verify_key.to_bytes(),
+        };
+        GdpRoute {
+            meta,
+            route,
+            name: meta.hash(),
+            verify_key,
+        }
     }
 }
 
@@ -231,26 +232,27 @@ pub fn load_routes() -> Result<Routes> {
         routes: serialized
             .routes
             .iter()
-            .map(|it| -> (String, GdpRoute) {
-                let gdp_name = it.0.parse::<GdpName>().unwrap();
+            .map(|it| -> (GdpName, GdpRoute) {
+                let index = it.0.parse::<u8>().unwrap();
                 let route = it.1.to_owned();
-                let gdp_route = GdpRoute::from_serial_entry(gdp_name, route);
+                let gdp_route = GdpRoute::from_serial_entry(index, route);
                 (gdp_route.name, gdp_route)
             })
             .collect(),
         rib: serialized.rib,
-        default: serialized.default,
+        default: GdpRoute::from_serial_entry(u8::MAX, serialized.default),
     })
 }
 
-fn gen_keypair_u32(seed: u32) -> Result<(SigningKey, VerifyingKey)> {
+fn gen_keypair_u8(seed: u8) -> Result<(SigningKey, VerifyingKey)> {
     let mut arr = [0u8; 32];
     arr[0] = seed; // TODO: load a u8 from the toml
-    return gen_keypair(&arr);
+    gen_keypair(&arr)
 }
 
 fn gen_keypair(seed: &[u8; 32]) -> Result<(SigningKey, VerifyingKey)> {
-    let signing_key = SigningKey::from_pkcs8_private_key_info(PrivateKeyInfo::new(ALGORITHM_ID, seed))?;
+    let signing_key =
+        SigningKey::from_pkcs8_private_key_info(PrivateKeyInfo::new(ALGORITHM_ID, seed))?;
     let verifying_key = signing_key.verifying_key();
     Ok((signing_key, verifying_key))
 }
@@ -264,7 +266,7 @@ pub fn test_signatures(msg: &'_ [u8]) -> Result<&'_ [u8]> {
     let (sign_key, verify_key) = gen_keypair(&seed)?;
     let verify_bytes = verify_key.to_bytes();
     let verify_key = VerifyingKey::from_bytes(&verify_bytes)?;
-    let sig = sign(&sign_key, &msg);
+    let sig = sign(&sign_key, msg);
     let enc_sig = sig.to_bytes();
     let dec_sig = Signature::new(enc_sig);
     verify_key.verify(msg, &dec_sig)?;

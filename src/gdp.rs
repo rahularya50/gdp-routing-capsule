@@ -1,6 +1,7 @@
-use crate::kvs::GdpName;
-use crate::DTls;
-use derivative::Derivative;
+use std::convert::{TryFrom, TryInto};
+use std::fmt;
+use std::hash::Hash;
+use std::ptr::NonNull;
 
 use anyhow::{anyhow, Result};
 use capsule::packets::ip::v4::Ipv4;
@@ -8,17 +9,15 @@ use capsule::packets::ip::IpPacket;
 use capsule::packets::types::u16be;
 use capsule::packets::{Internal, Packet};
 use capsule::{ensure, SizeOf};
-use serde::{Deserialize, Serialize};
-use std::convert::TryFrom;
-use std::convert::TryInto;
-use std::fmt;
-use std::ptr::NonNull;
+use derivative::Derivative;
+use generic_array::GenericArray;
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use strum_macros::EnumIter;
-
-use sha2::{Sha256, Digest};
-use std::hash::Hash;
-use generic_array::{GenericArray};
 use typenum::U32;
+
+use crate::kvs::GdpName;
+use crate::DTls;
 
 const MAGIC_NUMBERS: u16 = u16::from_be_bytes([0x26, 0x2a]);
 
@@ -218,11 +217,10 @@ struct GdpHeader {
     src: GdpName, // 256-bit source
     dst: GdpName, // 256-bit destination
 }
- 
+
 #[derive(Hash, Clone, Copy, Deserialize)]
 pub struct GdpMeta {
-    pub pub_key: [u8; 32]
-    // TODO: compute hash on initialization
+    pub pub_key: [u8; 32], // TODO: compute hash on initialization
 }
 
 impl GdpMeta {
