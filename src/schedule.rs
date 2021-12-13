@@ -19,7 +19,7 @@ impl<T: Future<Output = ()>> Schedule<'_, T> {
 
 impl<T: Future<Output = ()>> Pipeline for Schedule<'_, T> {
     fn name(&self) -> &str {
-        return self.name;
+        self.name
     }
 
     fn run_once(&mut self) {

@@ -46,7 +46,7 @@ pub fn make_print_stats() -> (impl Fn(), Arc<Mutex<HashMap<String, Vec<u64>>>>) 
     let history_map_ref: Arc<Mutex<HashMap<String, Vec<u64>>>> =
         Arc::new(Mutex::new(HashMap::new()));
     let history_map_copy = history_map_ref.clone();
-    return (
+    (
         move || {
             print_stats_diff(
                 &mut *stats_map_ref.lock().unwrap(),
@@ -54,7 +54,7 @@ pub fn make_print_stats() -> (impl Fn(), Arc<Mutex<HashMap<String, Vec<u64>>>>) 
             )
         },
         history_map_copy,
-    );
+    )
 }
 
 pub fn dump_history(map: &HashMap<String, Vec<u64>>) -> Result<()> {
@@ -66,10 +66,10 @@ pub fn dump_history(map: &HashMap<String, Vec<u64>>) -> Result<()> {
     // Write all the headers
     // Let's be sane and sort the keys
     let mut map_keys = map.keys().map(|s| &**s).collect::<Vec<_>>();
-    if map_keys.len() == 0 {
+    if map_keys.is_empty() {
         return Ok(());
     }
-    map_keys.sort();
+    map_keys.sort_unstable();
 
     file.write_all((map_keys.join("\t") + "\n").as_bytes())?;
 

@@ -45,15 +45,14 @@ mod statistics;
 mod switch;
 mod workloads;
 
-fn install_gdp_pipeline<'a>(
+fn install_gdp_pipeline(
     q: PortQueue,
     gdp_pipeline: impl GdpPipeline,
     store: Store,
-    _nic_name: &'a str,
     node_addr: Option<Route>,
-) -> impl Pipeline + 'a {
+) -> impl Pipeline {
     Poll::new(q.clone())
-        .map(|packet| Ok(packet.parse::<Ethernet>()?.parse::<Ipv4>()?))
+        .map(|packet| packet.parse::<Ethernet>()?.parse::<Ipv4>())
         .filter(move |packet| {
             if let Some(node_addr) = node_addr {
                 packet.dst() == node_addr.ip && packet.envelope().dst() == node_addr.mac
@@ -61,9 +60,9 @@ fn install_gdp_pipeline<'a>(
                 true
             }
         })
-        .map(|packet| Ok(packet.parse::<Udp<Ipv4>>()?.parse::<DTls<Ipv4>>()?))
+        .map(|packet| packet.parse::<Udp<Ipv4>>()?.parse::<DTls<Ipv4>>())
         .map(decrypt_gdp)
-        .map(|packet| Ok(packet.parse::<Gdp<Ipv4>>()?))
+        .map(|packet| packet.parse::<Gdp<Ipv4>>())
         .filter_map(|mut packet| {
             // Drop if TTL <= 1, otherwise decrement and keep forwarding
             if packet.ttl() <= 1 {
@@ -112,10 +111,6 @@ enum ProdMode {
 }
 
 fn start_dev_server(config: RuntimeConfig) -> Result<()> {
-    let name1 = "rib1";
-    let name2 = "sw1";
-    let name3 = "sw2";
-
     let store1 = Store::new_shared();
     let store2 = Store::new_shared();
     let store3 = Store::new_shared();
@@ -127,17 +122,16 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| {
             install_gdp_pipeline(
-                q.clone(),
+                q,
                 rib_pipeline(false, routes),
                 store1.sync(),
-                name1,
                 Some(Route {
                     ip: Ipv4Addr::new(10, 100, 1, 10),
                     mac: MacAddr::new(0x02, 0x00, 0x00, 0xff, 0xff, 0x00),
                 }),
             )
         })?
-        .add_pipeline_to_port("eth2", move |q| dev_schedule(q, name2, store2.sync()))?
+        .add_pipeline_to_port("eth2", move |q| dev_schedule(q, "client"))?
         .add_pipeline_to_port("eth3", move |q| {
             let store3_local = store3.sync();
             install_gdp_pipeline(
@@ -151,7 +145,6 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
                     },
                 ),
                 store3_local,
-                name3,
                 Some(Route {
                     ip: Ipv4Addr::new(10, 100, 1, 12),
                     mac: MacAddr::new(0x02, 0x00, 0x00, 0xff, 0xff, 0x02),
@@ -203,7 +196,7 @@ fn start_prod_server(
         debug: bool,
         pipeline: fn(Store, &'static Routes, bool) -> T,
     ) -> Result<()> {
-        let node_addr = gdp_name.map(startup_route_lookup).flatten();
+        let node_addr = gdp_name.and_then(startup_route_lookup);
 
         let store = Store::new_shared();
         let (print_stats, history_map) = make_print_stats();
@@ -212,7 +205,7 @@ fn start_prod_server(
         Runtime::build(config)?
             .add_pipeline_to_port("eth1", move |q| {
                 let store = store.sync();
-                install_gdp_pipeline(q, pipeline(store, routes, debug), store, "prod", node_addr)
+                install_gdp_pipeline(q, pipeline(store, routes, debug), store, node_addr)
             })?
             .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
             .add_periodic_task_to_core(
