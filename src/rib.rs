@@ -1,6 +1,5 @@
 use crate::dtls::DTls;
-use crate::gdp::Gdp;
-use crate::gdp::GdpAction;
+use crate::gdp::{Gdp, GdpAction, GdpMeta};
 use crate::kvs::GdpName;
 use crate::kvs::Store;
 use crate::pipeline;
@@ -151,14 +150,36 @@ struct SerializedRoutes {
 }
 
 pub struct Routes {
-    pub routes: HashMap<GdpName, Route>,
+    pub routes: HashMap<u8, GdpRoute>,
     pub rib: Route,
-    pub default: Route,
+    pub default: GdpRoute,
 }
+
 #[derive(Clone, Copy, Deserialize)]
 pub struct Route {
     pub ip: Ipv4Addr,
-    pub mac: MacAddr,
+    pub mac: MacAddr
+}
+
+#[derive(Clone, Deserialize)]
+pub struct GdpRoute {
+    pub route: Route,
+    pub meta: GdpMeta,
+    pub name: GdpName,
+    pub sign_key: SigningKey,
+    pub verify_key: VerifyingKey
+}
+
+impl GdpRoute {
+    fn from_serial_entry(name: u32, route: Route) -> GdpRoute {
+        // TODO: fixme
+        let mut route: GdpRoute;
+        route.route = route;
+        (route.sign_key, route.verify_key) = gen_keypair_u32(name).unwrap();
+        route.meta = GdpMeta { pub_key: route.verify_key.to_bytes() };
+        route.name = route.meta.hash();
+        return route;
+    }
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
@@ -193,11 +214,22 @@ pub fn load_routes() -> Result<Routes> {
         routes: serialized
             .routes
             .iter()
-            .map(|it| (it.0.parse::<GdpName>().unwrap(), it.1.to_owned()))
+            .map(|it| -> (String, GdpRoute) {
+                let gdp_name = it.0.parse::<GdpName>().unwrap();
+                let route = it.1.to_owned();
+                let gdp_route = GdpRoute::from_serial_entry(gdp_name, route);
+                (gdp_route.name, gdp_route)
+            })
             .collect(),
         rib: serialized.rib,
         default: serialized.default,
     })
+}
+
+fn gen_keypair_u32(seed: u32) -> Result<(SigningKey, VerifyingKey)> {
+    let mut arr = [0u8; 32];
+    arr[0] = seed; // TODO: load a u8 from the toml
+    return gen_keypair(&arr);
 }
 
 fn gen_keypair(seed: &[u8; 32]) -> Result<(SigningKey, VerifyingKey)> {
@@ -212,10 +244,10 @@ fn sign(key: &SigningKey, msg: &[u8]) -> Signature {
 
 pub fn test_signatures(msg: &'_ [u8]) -> Result<&'_ [u8]> {
     let seed = [0u8; 32];
-    let (sig_key, verify_key) = gen_keypair(&seed)?;
+    let (sign_key, verify_key) = gen_keypair(&seed)?;
     let verify_bytes = verify_key.to_bytes();
     let verify_key = VerifyingKey::from_bytes(&verify_bytes)?;
-    let sig = sign(&sig_key, &msg);
+    let sig = sign(&sign_key, &msg);
     let enc_sig = sig.to_bytes();
     let dec_sig = Signature::new(enc_sig);
     verify_key.verify(msg, &dec_sig)?;

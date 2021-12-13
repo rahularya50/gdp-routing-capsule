@@ -8,6 +8,7 @@ use capsule::packets::ip::IpPacket;
 use capsule::packets::types::u16be;
 use capsule::packets::{Internal, Packet};
 use capsule::{ensure, SizeOf};
+use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::fmt;
@@ -218,13 +219,14 @@ struct GdpHeader {
     dst: GdpName, // 256-bit destination
 }
  
-#[derive(Hash)]
-struct GdpMeta {
-    pub_key: [u8; 32]
+#[derive(Hash, Clone, Copy, Deserialize)]
+pub struct GdpMeta {
+    pub pub_key: [u8; 32]
+    // TODO: compute hash on initialization
 }
 
 impl GdpMeta {
-    fn hash(self) -> [u8; 32] {
+    pub fn hash(self) -> GdpName {
         let mut hasher = Sha256::new();
         let x: GenericArray<u8, U32> = GenericArray::clone_from_slice(&self.pub_key);
         hasher.update(x);

@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rand::prelude::SliceRandom;
 
-pub type GdpName = u32;
+pub type GdpName = [u8; 32];
 
 #[derive(Copy, Clone)]
 pub struct SharedCache<K, V>(&'static RwLock<HashMap<K, V>>)
