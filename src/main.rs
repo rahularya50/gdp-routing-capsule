@@ -49,8 +49,10 @@ fn install_gdp_pipeline(
     q: PortQueue,
     gdp_pipeline: impl GdpPipeline,
     store: Store,
+    nic_name: &'_ str,
     node_addr: Option<Route>,
-) -> impl Pipeline {
+    debug: bool,
+) -> impl Pipeline + '_ {
     Poll::new(q.clone())
         .map(|packet| packet.parse::<Ethernet>()?.parse::<Ipv4>())
         .filter(move |packet| {
@@ -63,6 +65,12 @@ fn install_gdp_pipeline(
         .map(|packet| packet.parse::<Udp<Ipv4>>()?.parse::<DTls<Ipv4>>())
         .map(decrypt_gdp)
         .map(|packet| packet.parse::<Gdp<Ipv4>>())
+        .for_each(move |_| {
+            if debug {
+                println!("handling packet in {}", nic_name);
+            }
+            Ok(())
+        })
         .filter_map(|mut packet| {
             // Drop if TTL <= 1, otherwise decrement and keep forwarding
             if packet.ttl() <= 1 {
@@ -121,34 +129,42 @@ fn start_dev_server(config: RuntimeConfig) -> Result<()> {
 
     Runtime::build(config)?
         .add_pipeline_to_port("eth1", move |q| {
+            let name = "rib";
             install_gdp_pipeline(
                 q,
-                rib_pipeline(false, routes),
+                rib_pipeline(name, routes, false, true),
                 store1.sync(),
+                name,
                 Some(Route {
                     ip: Ipv4Addr::new(10, 100, 1, 10),
                     mac: MacAddr::new(0x02, 0x00, 0x00, 0xff, 0xff, 0x00),
                 }),
+                true,
             )
         })?
         .add_pipeline_to_port("eth2", move |q| dev_schedule(q, "client"))?
         .add_pipeline_to_port("eth3", move |q| {
+            let name = "switch";
             let store3_local = store3.sync();
             install_gdp_pipeline(
                 q,
                 switch_pipeline(
                     store3_local,
+                    name,
                     routes,
                     Route {
                         ip: Ipv4Addr::new(10, 100, 1, 10),
                         mac: MacAddr::new(0x02, 0x00, 0x00, 0xFF, 0xFF, 0x00),
                     },
+                    true,
                 ),
                 store3_local,
+                name,
                 Some(Route {
                     ip: Ipv4Addr::new(10, 100, 1, 12),
                     mac: MacAddr::new(0x02, 0x00, 0x00, 0xff, 0xff, 0x02),
                 }),
+                true,
             )
         })?
         // .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
@@ -180,20 +196,20 @@ fn start_prod_server(
     config: RuntimeConfig,
     mode: ProdMode,
     gdp_name: Option<GdpName>,
-    debug: bool,
+    use_default: bool,
 ) -> Result<()> {
-    fn create_rib(_store: Store, routes: &'static Routes, debug: bool) -> impl GdpPipeline {
-        rib_pipeline(debug, routes)
+    fn create_rib(_store: Store, routes: &'static Routes, use_default: bool) -> impl GdpPipeline {
+        rib_pipeline("rib", routes, use_default, false)
     }
 
-    fn create_switch(store: Store, routes: &'static Routes, _debug: bool) -> impl GdpPipeline {
-        switch_pipeline(store, routes, routes.rib)
+    fn create_switch(store: Store, routes: &'static Routes, _: bool) -> impl GdpPipeline {
+        switch_pipeline(store, "switch", routes, routes.rib, false)
     }
 
     fn start<T: GdpPipeline + 'static>(
         config: RuntimeConfig,
         gdp_name: Option<GdpName>,
-        debug: bool,
+        use_default: bool,
         pipeline: fn(Store, &'static Routes, bool) -> T,
     ) -> Result<()> {
         let node_addr = gdp_name.and_then(startup_route_lookup);
@@ -205,7 +221,14 @@ fn start_prod_server(
         Runtime::build(config)?
             .add_pipeline_to_port("eth1", move |q| {
                 let store = store.sync();
-                install_gdp_pipeline(q, pipeline(store, routes, debug), store, node_addr)
+                install_gdp_pipeline(
+                    q,
+                    pipeline(store, routes, use_default),
+                    store,
+                    "prod",
+                    node_addr,
+                    false,
+                )
             })?
             .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
             .add_periodic_task_to_core(
@@ -219,8 +242,8 @@ fn start_prod_server(
     }
 
     match mode {
-        ProdMode::Router => start(config, gdp_name, debug, create_rib),
-        ProdMode::Switch => start(config, gdp_name, debug, create_switch),
+        ProdMode::Router => start(config, gdp_name, use_default, create_rib),
+        ProdMode::Switch => start(config, gdp_name, use_default, create_switch),
     }
 }
 
@@ -240,7 +263,7 @@ fn main() -> Result<()> {
         requires_if("switch", "name")
         "The type of this node")
         (@arg name: -n --name +takes_value "The GDPName of this node (used for packet filtering)")
-        (@arg debug: -d --debug !takes_value "Debug Mode: For Router mode, send default response even when GDP Name is invalid")
+        (@arg use_default: -d --default_routes !takes_value "For Router mode, send default response even when GDP Name is invalid")
     )
     .get_matches();
 
@@ -263,13 +286,13 @@ fn main() -> Result<()> {
             config,
             ProdMode::Router,
             gdp_name.ok(),
-            matches.is_present("debug"),
+            matches.is_present("use_default"),
         ),
         Mode::Switch => start_prod_server(
             config,
             ProdMode::Switch,
             Some(gdp_name?),
-            matches.is_present("debug"),
+            matches.is_present("use_default"),
         ),
         Mode::Client => start_client_server(config, gdp_name?),
     }
