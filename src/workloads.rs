@@ -15,9 +15,10 @@ use tokio_timer::delay_for;
 
 use crate::dtls::{encrypt_gdp, DTls};
 use crate::gdp::{Gdp, GdpAction};
+use crate::hardcoded_routes::startup_route_lookup;
 use crate::schedule::Schedule;
 use crate::statistics::make_print_stats;
-use crate::{dump_history, startup_route_lookup, GdpRoute, Route};
+use crate::{dump_history, GdpRoute, Route};
 
 const MSG: &[u8] = &[b'A'; 10000];
 

@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::fs;
 use std::net::Ipv4Addr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -9,17 +8,27 @@ use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Ethernet, Packet, Udp};
 use capsule::Mbuf;
-use serde::{Deserialize, Serialize};
-use signatory::ed25519::{Signature, SigningKey, VerifyingKey, ALGORITHM_ID};
-use signatory::pkcs8::{FromPrivateKey, PrivateKeyInfo};
-use signatory::signature::{Signer, Verifier};
+use serde::Deserialize;
 
 use crate::dtls::DTls;
-use crate::gdp::{Gdp, GdpAction, GdpMeta};
+use crate::gdp::{Gdp, GdpAction};
 use crate::kvs::{GdpName, Store};
-use crate::{pipeline, FwdTableEntry, GdpPipeline};
+use crate::ribpayload::{RibQuery, RibResponse};
+use crate::{pipeline, FwdTableEntry, GdpPipeline, GdpRoute};
 
 const RIB_PORT: u16 = 27182;
+
+pub struct Routes {
+    pub routes: HashMap<GdpName, GdpRoute>,
+    pub rib: Route,
+    pub default: GdpRoute,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+pub struct Route {
+    pub ip: Ipv4Addr,
+    pub mac: MacAddr,
+}
 
 pub fn create_rib_request(
     message: Mbuf,
@@ -149,126 +158,4 @@ pub fn rib_pipeline(
         }
         _ => |group| {group.filter(|_| false)}
     }
-}
-
-#[derive(Deserialize)]
-struct SerializedRoutes {
-    routes: HashMap<String, Route>,
-    rib: Route,
-    default: Route,
-}
-
-pub struct Routes {
-    pub routes: HashMap<GdpName, GdpRoute>,
-    pub rib: Route,
-    pub default: GdpRoute,
-}
-
-#[derive(Clone, Copy, Deserialize)]
-pub struct Route {
-    pub ip: Ipv4Addr,
-    pub mac: MacAddr,
-}
-
-#[derive(Clone)]
-pub struct GdpRoute {
-    pub route: Route,
-    pub meta: GdpMeta,
-    pub name: GdpName,
-    pub verify_key: VerifyingKey,
-}
-
-impl GdpRoute {
-    pub fn gdp_name_of_index(index: u8) -> GdpName {
-        let (_, verify_key) = gen_keypair_u8(index).unwrap();
-        GdpMeta {
-            pub_key: verify_key.to_bytes(),
-        }
-        .hash()
-    }
-    pub fn from_serial_entry(index: u8, route: Route) -> Self {
-        let (_, verify_key) = gen_keypair_u8(index).unwrap();
-        let meta = GdpMeta {
-            pub_key: verify_key.to_bytes(),
-        };
-        GdpRoute {
-            meta,
-            route,
-            name: meta.hash(),
-            verify_key,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Deserialize, Serialize)]
-pub struct RibQuery {
-    pub gdp_name: GdpName,
-}
-
-impl RibQuery {
-    pub fn new(gdp_name: GdpName) -> Self {
-        RibQuery { gdp_name }
-    }
-}
-
-#[derive(Clone, Copy, Deserialize, Serialize)]
-pub struct RibResponse {
-    pub gdp_name: GdpName,
-    pub ip: Ipv4Addr,
-    pub ttl: u64,
-}
-
-impl RibResponse {
-    pub fn new(gdp_name: GdpName, ip: Ipv4Addr, ttl: u64) -> Self {
-        RibResponse { gdp_name, ip, ttl }
-    }
-}
-
-pub fn load_routes() -> Result<Routes> {
-    let content = fs::read_to_string("routes.toml")?;
-    let serialized: SerializedRoutes = toml::from_str(&content)?;
-
-    Ok(Routes {
-        routes: serialized
-            .routes
-            .iter()
-            .map(|it| -> (GdpName, GdpRoute) {
-                let index = it.0.parse::<u8>().unwrap();
-                let route = it.1.to_owned();
-                let gdp_route = GdpRoute::from_serial_entry(index, route);
-                (gdp_route.name, gdp_route)
-            })
-            .collect(),
-        rib: serialized.rib,
-        default: GdpRoute::from_serial_entry(u8::MAX, serialized.default),
-    })
-}
-
-fn gen_keypair_u8(seed: u8) -> Result<(SigningKey, VerifyingKey)> {
-    let mut arr = [0u8; 32];
-    arr[0] = seed; // TODO: load a u8 from the toml
-    gen_keypair(&arr)
-}
-
-fn gen_keypair(seed: &[u8; 32]) -> Result<(SigningKey, VerifyingKey)> {
-    let signing_key =
-        SigningKey::from_pkcs8_private_key_info(PrivateKeyInfo::new(ALGORITHM_ID, seed))?;
-    let verifying_key = signing_key.verifying_key();
-    Ok((signing_key, verifying_key))
-}
-
-fn sign(key: &SigningKey, msg: &[u8]) -> Signature {
-    Signature::new(key.sign(msg).to_bytes())
-}
-
-pub fn test_signatures(msg: &'_ [u8]) -> Result<&'_ [u8]> {
-    let seed = [0u8; 32];
-    let (sign_key, verify_key) = gen_keypair(&seed)?;
-    let verify_bytes = verify_key.to_bytes();
-    let verify_key = VerifyingKey::from_bytes(&verify_bytes)?;
-    let sig = sign(&sign_key, msg);
-    let enc_sig = sig.to_bytes();
-    let dec_sig = Signature::new(enc_sig);
-    verify_key.verify(msg, &dec_sig)?;
-    Ok(msg)
 }
