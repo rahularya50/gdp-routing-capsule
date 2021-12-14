@@ -13,8 +13,9 @@ use rand::Rng;
 use serde::Deserialize;
 use tokio_timer::delay_for;
 
+use crate::certificates::{CertDest, Certificate};
 use crate::dtls::{encrypt_gdp, DTls};
-use crate::gdp::{Gdp, GdpAction};
+use crate::gdp::{CertificateBlock, Gdp, GdpAction};
 use crate::hardcoded_routes::startup_route_lookup;
 use crate::schedule::Schedule;
 use crate::statistics::make_print_stats;
@@ -79,6 +80,14 @@ fn prep_packet(
     reply
         .mbuf_mut()
         .write_data_slice(offset, &message[..payload_size])?;
+
+    let certificates = vec![Certificate {
+        base: rng.gen(),
+        proxy: CertDest::GdpName(rng.gen()),
+        signature: rng.gen(),
+        bidirectional: true,
+    }];
+    reply.set_certs(&CertificateBlock { certificates }).unwrap();
 
     reply.reconcile_all();
 

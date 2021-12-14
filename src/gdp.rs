@@ -141,9 +141,13 @@ impl<T: IpPacket> Gdp<T> {
     #[inline]
     pub fn set_certs(&mut self, certificates: &CertificateBlock) -> Result<()> {
         let serialized = bincode::serialize(certificates).unwrap(); // todo: avoid allocation, write straight into mbuf!
-        let cert_offset = self.payload_offset() + self.payload_len();
-        self.mbuf_mut().truncate(cert_offset)?;
-        self.mbuf_mut().extend(cert_offset, serialized.len())?;
+        let cert_offset = self.payload_offset() + self.data_len();
+        if self.mbuf().data_len() != cert_offset {
+            self.mbuf_mut().truncate(cert_offset)?;
+        }
+        if (serialized.len() > 0) {
+            self.mbuf_mut().extend(cert_offset, serialized.len())?;
+        }
         self.mbuf_mut().write_data_slice(cert_offset, &serialized)?;
         Ok(())
     }
@@ -262,5 +266,5 @@ struct GdpHeader {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CertificateBlock {
-    certificates: Vec<Certificate>,
+    pub certificates: Vec<Certificate>,
 }

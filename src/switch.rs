@@ -78,7 +78,9 @@ pub fn switch_pipeline(
         GdpAction::Forward => |group| {
             group
             .for_each(move |packet| {
-                println!("{} received packet with certificates {:?}", nic_name, packet.get_certs().unwrap());
+                if debug {
+                    println!("{} received packet with certificates {:?}", nic_name, packet.get_certs().unwrap());
+                }
                 Ok(())
             })
             .for_each(move |packet| {
