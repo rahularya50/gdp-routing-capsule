@@ -89,8 +89,7 @@ pub fn switch_pipeline(
                     FwdTableEntry::new(
                         packet.envelope().envelope().envelope().src(),
                         SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
+                            .duration_since(UNIX_EPOCH)?
                             .as_secs()
                             + 100,
                     ),

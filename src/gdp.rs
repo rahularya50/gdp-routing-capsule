@@ -140,7 +140,7 @@ impl<T: IpPacket> Gdp<T> {
 
     #[inline]
     pub fn set_certs(&mut self, certificates: &CertificateBlock) -> Result<()> {
-        let serialized = bincode::serialize(certificates).unwrap(); // todo: avoid allocation, write straight into mbuf!
+        let serialized = bincode::serialize(certificates)?; // todo: avoid allocation, write straight into mbuf!
         let cert_offset = self.payload_offset() + self.data_len();
         if self.mbuf().data_len() != cert_offset {
             self.mbuf_mut().truncate(cert_offset)?;

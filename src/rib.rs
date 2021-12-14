@@ -68,15 +68,10 @@ pub fn create_rib_request(
 pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store) -> Result<()> {
     let data_slice = packet
         .mbuf()
-        .read_data_slice(packet.payload_offset(), packet.payload_len())
-        .unwrap();
+        .read_data_slice(packet.payload_offset(), packet.payload_len())?;
     let data_slice_ref = unsafe { data_slice.as_ref() };
-    let response: RibResponse = bincode::deserialize(data_slice_ref).unwrap();
-    let expiration_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        + response.ttl;
+    let response: RibResponse = bincode::deserialize(data_slice_ref)?;
+    let expiration_time = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() + response.ttl;
     store.forwarding_table.put(
         response.gdp_name,
         FwdTableEntry::new(response.ip, expiration_time),
@@ -97,7 +92,7 @@ fn handle_rib_query(
         .mbuf()
         .read_data_slice(packet.payload_offset(), packet.payload_len())?;
     let data_slice_ref = unsafe { data_slice.as_ref() };
-    let query: RibQuery = bincode::deserialize(data_slice_ref).unwrap();
+    let query: RibQuery = bincode::deserialize(data_slice_ref)?;
 
     let dtls = packet.envelope();
     let udp = dtls.envelope();
@@ -122,13 +117,10 @@ fn handle_rib_query(
     let mut out = out.push::<Gdp<Ipv4>>()?;
     out.set_action(GdpAction::RibReply);
     let mut result: Option<&Route> = routes.routes.get(&query.gdp_name);
-    if result.is_none() {
-        if use_default {
-            result = Some(&routes.default);
-        } else {
-            return Err(anyhow!("GDPName not found!"));
-        }
+    if use_default {
+        result = result.or(Some(&routes.default));
     }
+    let result = result.ok_or_else(|| anyhow!("cannot deserialize ribquery"))?;
     if debug {
         println!(
             "{} replying to query looking up {:?}",
@@ -136,8 +128,8 @@ fn handle_rib_query(
         );
     }
     // TTL default is 4 hours
-    let rib_response = RibResponse::new(query.gdp_name, result.unwrap().ip, 14_400);
-    let message = bincode::serialize(&rib_response).unwrap();
+    let rib_response = RibResponse::new(query.gdp_name, result.ip, 14_400);
+    let message = bincode::serialize(&rib_response)?;
     let offset = out.payload_offset();
     out.mbuf_mut().extend(offset, message.len())?;
     out.mbuf_mut().write_data_slice(offset, &message)?;

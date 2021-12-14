@@ -90,7 +90,7 @@ fn prep_packet(
         CertDest::GdpName(rng.gen()),
         true,
     )?];
-    reply.set_certs(&CertificateBlock { certificates }).unwrap();
+    reply.set_certs(&CertificateBlock { certificates })?;
 
     reply.reconcile_all();
 
