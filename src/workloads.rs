@@ -19,6 +19,8 @@ use crate::gdp::{CertificateBlock, Gdp, GdpAction};
 use crate::hardcoded_routes::{
     gdp_name_of_index, metadata_of_index, private_key_of_index, startup_route_lookup,
 };
+use crate::rib::send_rib_query;
+use crate::ribpayload::RibQuery;
 use crate::schedule::Schedule;
 use crate::statistics::make_print_stats;
 use crate::{dump_history, Route};
@@ -137,7 +139,27 @@ pub fn dev_schedule(q: PortQueue, name: &str) -> impl Pipeline + '_ {
         ip: switch_ip,
         mac: switch_mac,
     };
+    let meta = metadata_of_index(1);
+    let private_key = private_key_of_index(1);
+    send_rib_query(
+        q.clone(),
+        src_ip,
+        switch_route,
+        &RibQuery::announce_route(
+            meta,
+            RtCert::new_wrapped(
+                meta,
+                private_key,
+                CertDest::GdpName(gdp_name_of_index(2)),
+                true,
+            )
+            .unwrap(),
+        ),
+        "client",
+    );
+
     Schedule::new(name, async move {
+        delay_for(Duration::from_millis(2000)).await;
         println!("sending initial packet 1");
         send_initial_packet(q.clone(), name, src_ip, switch_route);
         delay_for(Duration::from_millis(5000)).await;

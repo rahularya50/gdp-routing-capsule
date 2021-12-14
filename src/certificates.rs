@@ -11,27 +11,27 @@ use signatory::signature::{Signer, Verifier};
 use crate::gdp::Gdp;
 use crate::kvs::{GdpName, Store};
 
-#[derive(Hash, Clone, Copy, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct GdpMeta {
     pub pub_key: [u8; 32], // TODO: compute hash on initialization
 }
 
 impl GdpMeta {
-    pub fn hash(self) -> GdpName {
+    pub fn hash(&self) -> GdpName {
         let mut hasher = Sha256::new();
         hasher.update(self.pub_key);
         hasher.finalize().into()
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Certificate {
     pub contents: CertContents,
     signature: SerializableSignature,
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, Debug)]
-struct SerializableSignature([u8; 32], [u8; 32]);
+pub struct SerializableSignature([u8; 32], [u8; 32]);
 
 impl From<[u8; 64]> for SerializableSignature {
     fn from(x: [u8; 64]) -> SerializableSignature {
@@ -46,7 +46,7 @@ impl From<SerializableSignature> for [u8; 64] {
 }
 
 impl Certificate {
-    pub fn verify(&self, meta: GdpMeta) -> Result<()> {
+    pub fn verify(&self, meta: &GdpMeta) -> Result<()> {
         if meta.hash() != self.contents.owner() {
             return Err(anyhow!("public key does not match gdpname"));
         }
@@ -58,7 +58,7 @@ impl Certificate {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum CertContents {
     RtCert(RtCert),
 }
@@ -72,14 +72,14 @@ impl CertContents {
         Ok(signing_key.sign(&bincode::serialize(&self)?).to_bytes())
     }
 
-    fn owner(&self) -> GdpName {
+    pub fn owner(&self) -> GdpName {
         match *self {
             CertContents::RtCert(RtCert { base, .. }) => base,
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct RtCert {
     pub base: GdpName,
     pub proxy: CertDest,
@@ -111,7 +111,7 @@ impl RtCert {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum CertDest {
     GdpName(GdpName),
     IpAddr(Ipv4Addr),
@@ -126,25 +126,25 @@ pub fn check_packet_certificates(
     debug: bool,
 ) -> bool {
     if let Ok(certs) = packet.get_certs() {
-        if debug {
-            println!("{} received packet with certificates {:?}", nic_name, certs);
-        }
-        let mut pos = packet.src();
-        for cert in certs.certificates {
-            if cert.contents.owner() != pos {
-                return false;
-            }
-            match cert.contents {
-                CertContents::RtCert(RtCert {
-                    proxy: CertDest::GdpName(proxy),
-                    ..
-                }) => pos = proxy,
-                _ => return false,
-            }
-        }
-        if pos != gdp_name {
-            return false;
-        }
+        // if debug {
+        //     println!("{} received packet with certificates {:?}", nic_name, certs);
+        // }
+        // let mut pos = packet.src();
+        // for cert in certs.certificates {
+        //     if cert.contents.owner() != pos {
+        //         return false;
+        //     }
+        //     match cert.contents {
+        //         CertContents::RtCert(RtCert {
+        //             proxy: CertDest::GdpName(proxy),
+        //             ..
+        //         }) => pos = proxy,
+        //         _ => return false,
+        //     }
+        // }
+        // if pos != gdp_name {
+        //     return false;
+        // }
         true
     } else {
         false

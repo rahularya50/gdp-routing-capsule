@@ -13,6 +13,7 @@ use crate::gdpbatch::GdpBatch;
 use crate::kvs::{GdpName, Store};
 use crate::pipeline::GdpPipeline;
 use crate::rib::{create_rib_request, handle_rib_reply, Routes};
+use crate::ribpayload::RibQuery;
 use crate::{pipeline, FwdTableEntry, Route};
 
 fn find_destination(gdp: &Gdp<Ipv4>, store: Store) -> Option<Ipv4Addr> {
@@ -41,7 +42,6 @@ fn bounce_udp(udp: &mut Udp<Ipv4>) {
 fn forward_gdp(mut gdp: Gdp<Ipv4>, dst: Route) -> Result<Either<Gdp<Ipv4>>> {
     let dtls = gdp.envelope_mut();
     let udp = dtls.envelope_mut();
-
     let ipv4 = udp.envelope_mut();
 
     if ipv4.dst() == dst.ip {
@@ -118,7 +118,7 @@ pub fn switch_pipeline(
                             if debug {
                                 println!("{} querying RIB for destination {:?}", nic_name, packet.dst());
                             }
-                            create_rib_request(Mbuf::new()?, packet.dst(), src_mac, src_ip, rib_route)
+                            create_rib_request(Mbuf::new()?, &RibQuery::next_hop_for(packet.dst()), src_mac, src_ip, rib_route)
                         })
                     }
                 })
@@ -136,6 +136,9 @@ pub fn switch_pipeline(
                     None => Ok(Either::Drop(packet.reset())),
                 }
             })
+        }
+        GdpAction::RibGet => |group| {
+            group.filter_map(move |packet| forward_gdp(packet, rib_route))
         }
         _ => |group| {group.filter(|_| false)}
     }

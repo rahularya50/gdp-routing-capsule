@@ -8,7 +8,8 @@ use signatory::pkcs8::{FromPrivateKey, PrivateKeyInfo};
 
 use crate::certificates::GdpMeta;
 use crate::kvs::GdpName;
-use crate::rib::{Route, Routes};
+use crate::rib::{DynamicRoutes, Route, Routes};
+use std::sync::RwLock;
 
 #[derive(Deserialize)]
 struct SerializedRoutes {
@@ -43,6 +44,7 @@ pub fn load_routes() -> Result<Routes> {
             .collect(),
         rib: serialized.rib,
         default: serialized.default,
+        dynamic_routes: RwLock::new(DynamicRoutes::new()),
     })
 }
 
