@@ -7,9 +7,10 @@ use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Packet, Udp};
 use capsule::Mbuf;
 
+use crate::certificates::check_packet_certificates;
 use crate::gdp::{Gdp, GdpAction};
 use crate::gdpbatch::GdpBatch;
-use crate::kvs::Store;
+use crate::kvs::{GdpName, Store};
 use crate::pipeline::GdpPipeline;
 use crate::rib::{create_rib_request, handle_rib_reply, Routes};
 use crate::{pipeline, FwdTableEntry, Route};
@@ -68,6 +69,7 @@ fn bounce_gdp(mut gdp: Gdp<Ipv4>) -> Result<Gdp<Ipv4>> {
 }
 
 pub fn switch_pipeline(
+    gdp_name: GdpName,
     store: Store,
     nic_name: &'static str,
     routes: &'static Routes,
@@ -77,11 +79,8 @@ pub fn switch_pipeline(
     pipeline! {
         GdpAction::Forward => |group| {
             group
-            .for_each(move |packet| {
-                if debug {
-                    println!("{} received packet with certificates {:?}", nic_name, packet.get_certs().unwrap());
-                }
-                Ok(())
+            .filter(move |packet| {
+                check_packet_certificates(gdp_name, packet, &store, None, nic_name, debug)
             })
             .for_each(move |packet| {
                 // Back-cache the route for 100s to allow NACK to reflect

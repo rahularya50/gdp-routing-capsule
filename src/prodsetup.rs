@@ -4,9 +4,10 @@ use anyhow::Result;
 use capsule::config::RuntimeConfig;
 use capsule::Runtime;
 
+use crate::certificates::GdpRoute;
 use crate::gdp_pipeline::install_gdp_pipeline;
 use crate::hardcoded_routes::{load_routes, startup_route_lookup};
-use crate::kvs::Store;
+use crate::kvs::{GdpName, Store};
 use crate::pipeline::GdpPipeline;
 use crate::rib::{rib_pipeline, Routes};
 use crate::statistics::{dump_history, make_print_stats};
@@ -20,24 +21,35 @@ pub enum ProdMode {
 pub fn start_prod_server(
     config: RuntimeConfig,
     mode: ProdMode,
-    gdp_index: Option<u8>,
+    gdp_index: u8,
     use_default: bool,
 ) -> Result<()> {
-    fn create_rib(_store: Store, routes: &'static Routes, use_default: bool) -> impl GdpPipeline {
+    fn create_rib(
+        _gdp_name: GdpName,
+        _store: Store,
+        routes: &'static Routes,
+        use_default: bool,
+    ) -> impl GdpPipeline {
         rib_pipeline("rib", routes, use_default, false)
     }
 
-    fn create_switch(store: Store, routes: &'static Routes, _: bool) -> impl GdpPipeline {
-        switch_pipeline(store, "switch", routes, routes.rib, false)
+    fn create_switch(
+        gdp_name: GdpName,
+        store: Store,
+        routes: &'static Routes,
+        _: bool,
+    ) -> impl GdpPipeline {
+        switch_pipeline(gdp_name, store, "switch", routes, routes.rib, false)
     }
 
     fn start<T: GdpPipeline + 'static>(
         config: RuntimeConfig,
-        gdp_index: Option<u8>,
+        gdp_index: u8,
         use_default: bool,
-        pipeline: fn(Store, &'static Routes, bool) -> T,
+        pipeline: fn(GdpName, Store, &'static Routes, bool) -> T,
     ) -> Result<()> {
-        let node_addr = gdp_index.and_then(startup_route_lookup);
+        let gdp_name = GdpRoute::gdp_name_of_index(gdp_index);
+        let node_addr = startup_route_lookup(gdp_index);
 
         let store = Store::new_shared();
         let (print_stats, history_map) = make_print_stats();
@@ -48,7 +60,7 @@ pub fn start_prod_server(
                 let store = store.sync();
                 install_gdp_pipeline(
                     q,
-                    pipeline(store, routes, use_default),
+                    pipeline(gdp_name, store, routes, use_default),
                     store,
                     "prod",
                     node_addr,

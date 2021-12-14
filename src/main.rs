@@ -58,10 +58,8 @@ fn main() -> Result<()> {
     let modes = &modes.each_ref().map(|mode| &(mode[..]));
 
     let matches = clap_app!(capsule =>
-        (@arg mode: -m --mode * +takes_value possible_values(&modes[..])
-        requires_if("switch", "name")
-        "The type of this node")
-        (@arg name: -n --name +takes_value "The GDPName of this node (used for packet filtering)")
+        (@arg mode: -m --mode * +takes_value possible_values(&modes[..]) "The type of this node")
+        (@arg name: -n --name * +takes_value "The GDPName of this node (used for packet filtering)")
         (@arg use_default: -d --default_routes !takes_value "For Router mode, send default response even when GDP Name is invalid")
     )
     .get_matches();
@@ -77,22 +75,22 @@ fn main() -> Result<()> {
     let content = fs::read_to_string(path)?;
     let config = toml::from_str(&content)?;
 
-    let gdp_name = value_t!(matches, "name", u8);
+    let gdp_name = value_t!(matches, "name", u8)?;
 
     match mode {
         Mode::Dev => start_dev_server(config),
         Mode::Router => start_prod_server(
             config,
             ProdMode::Router,
-            gdp_name.ok(),
+            gdp_name,
             matches.is_present("use_default"),
         ),
         Mode::Switch => start_prod_server(
             config,
             ProdMode::Switch,
-            Some(gdp_name?),
+            gdp_name,
             matches.is_present("use_default"),
         ),
-        Mode::Client => start_client_server(config, gdp_name?),
+        Mode::Client => start_client_server(config, gdp_name),
     }
 }
