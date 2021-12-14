@@ -68,7 +68,8 @@ fn prep_packet(
     if rval < random_dest_chance {
         reply.set_dst(rng.gen());
     } else {
-        reply.set_dst(GdpRoute::gdp_name_of_index(3));
+        // GDPName for 3
+        reply.set_dst([219, 7, 67, 226, 220, 186, 158, 191, 36, 25, 189, 224, 136, 27, 238, 169, 102, 104, 154, 38, 252, 68, 249, 190, 247, 173, 178, 151, 14, 211, 126, 232]);
     }
 
     reply.set_data_len(payload_size);
