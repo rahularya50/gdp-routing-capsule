@@ -61,6 +61,8 @@ pub fn create_rib_request(
     message.mbuf_mut().extend(offset, content.len())?;
     message.mbuf_mut().write_data_slice(offset, &content)?;
 
+    message.set_data_len(content.len());
+
     message.reconcile_all();
     Ok(message)
 }
@@ -133,6 +135,8 @@ fn handle_rib_query(
     let offset = out.payload_offset();
     out.mbuf_mut().extend(offset, message.len())?;
     out.mbuf_mut().write_data_slice(offset, &message)?;
+
+    out.set_data_len(message.len());
 
     out.reconcile_all();
     Ok(out)
