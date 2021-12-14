@@ -1,7 +1,6 @@
 use std::mem;
 use std::net::Ipv4Addr;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 use capsule::packets::ip::v4::Ipv4;
@@ -49,7 +48,7 @@ impl From<SerializableSignature> for [u8; 64] {
 
 impl Certificate {
     pub fn verify(&self, meta: &GdpMeta) -> Result<()> {
-        if meta.hash() != self.contents.owner() {
+        if meta.hash() != *self.contents.owner() {
             return Err(anyhow!("public key does not match gdpname"));
         }
         let verifying_key = VerifyingKey::from_bytes(&meta.pub_key)?;
@@ -74,9 +73,9 @@ impl CertContents {
         Ok(signing_key.sign(&bincode::serialize(&self)?).to_bytes())
     }
 
-    pub fn owner(&self) -> GdpName {
+    pub fn owner(&self) -> &GdpName {
         match *self {
-            CertContents::RtCert(RtCert { base, .. }) => base,
+            CertContents::RtCert(RtCert { ref base, .. }) => base,
         }
     }
 }
@@ -135,7 +134,7 @@ pub fn check_packet_certificates(
         }
         let mut pos = packet.src();
         for cert in certs.certificates {
-            if cert.contents.owner() != pos {
+            if *cert.contents.owner() != pos {
                 println!("owner mismatch {:?} {:?}", cert.contents.owner(), pos);
                 return false;
             }

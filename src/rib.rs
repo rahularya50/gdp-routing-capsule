@@ -101,13 +101,13 @@ pub fn send_rib_query(
         .run_once();
 }
 
-pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store) -> Result<()> {
+pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store, debug: bool) -> Result<()> {
     let data_slice = packet
         .mbuf()
         .read_data_slice(packet.payload_offset(), packet.payload_len())?;
     let data_slice_ref = unsafe { data_slice.as_ref() };
     let response: RibResponse = bincode::deserialize(data_slice_ref)?;
-    process_rib_response(response, &store)?;
+    process_rib_response(response, &store, debug)?;
     Ok(())
 }
 

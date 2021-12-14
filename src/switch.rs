@@ -124,7 +124,7 @@ pub fn switch_pipeline(
                 })
         }
         GdpAction::RibReply => |group| {
-            group.for_each(move |packet| handle_rib_reply(packet, store))
+            group.for_each(move |packet| handle_rib_reply(packet, store, debug))
                 .filter(|_| false)
         }
         GdpAction::Nack => |group| {

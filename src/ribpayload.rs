@@ -22,7 +22,7 @@ impl RibQuery {
     pub fn next_hop_for(dst: GdpName) -> Self {
         RibQuery {
             metas_for_names: Vec::new(),
-            ips_for_names: Vec::new(),
+            ips_for_names: vec![dst],
             next_hop_for_names: vec![dst],
             new_nodes: Vec::new(),
             new_certs: Vec::new(),
@@ -50,7 +50,7 @@ impl RibQuery {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct RibResponse {
     pub metas: Vec<GdpMeta>,
     pub certs: Vec<Certificate>,
@@ -60,18 +60,18 @@ fn insert_cert(cert: Certificate, routes: &mut DynamicRoutes) -> Result<()> {
     let gdp_name = cert.contents.owner();
     let gdp_metadata = routes
         .metadata
-        .get(&gdp_name)
+        .get(gdp_name)
         .ok_or_else(|| anyhow!("unknown gdpname owning cert"))?;
     cert.verify(gdp_metadata)?;
     match cert.contents {
         CertContents::RtCert(RtCert { ref proxy, .. }) => match proxy {
             CertDest::GdpName(_dest) => {
                 println!("RIB recording delegation");
-                routes.next_hop.insert(gdp_name, cert);
+                routes.next_hop.insert(*gdp_name, cert);
             }
             CertDest::IpAddr(dest) => {
                 println!("RIB recording node at {:?}", dest);
-                routes.locations.insert(gdp_name, cert);
+                routes.locations.insert(*gdp_name, cert);
             }
         },
     }
@@ -85,7 +85,11 @@ fn key_lookup<'a, T: Clone>(
 ) -> impl Iterator<Item = T> + 'a {
     name_iter.filter_map(move |gdp_name| {
         if debug {
-            println!("Looking up {:x?} in RIB", gdp_name)
+            println!(
+                "Looking up {:?} in RIB (found={:?})",
+                gdp_name,
+                lookup.contains_key(gdp_name)
+            )
         }
         lookup.get(gdp_name).cloned()
     })
@@ -104,35 +108,46 @@ pub fn generate_rib_response(query: RibQuery, routes: &Routes, debug: bool) -> R
         let _ = insert_cert(cert, &mut routes.dynamic_routes.write().unwrap());
     }
     let dynamic_routes = routes.dynamic_routes.read().unwrap();
-    RibResponse {
-        metas: key_lookup(
+
+    let certs = empty()
+        .chain(key_lookup(
+            query.ips_for_names.iter(),
+            &dynamic_routes.locations,
+            debug,
+        ))
+        .chain(key_lookup(
+            query.next_hop_for_names.iter(),
+            &dynamic_routes.next_hop,
+            debug,
+        ))
+        .collect::<Vec<_>>();
+
+    let metas = empty()
+        .chain(key_lookup(
             query.metas_for_names.iter(),
             &dynamic_routes.metadata,
             debug,
-        )
-        .collect(),
-        certs: empty()
-            .chain(key_lookup(
-                query.ips_for_names.iter(),
-                &dynamic_routes.locations,
-                debug,
-            ))
-            .chain(key_lookup(
-                query.next_hop_for_names.iter(),
-                &dynamic_routes.next_hop,
-                debug,
-            ))
-            .collect(),
-    }
+        ))
+        .chain(key_lookup(
+            certs.iter().map(|cert| cert.contents.owner()),
+            &dynamic_routes.metadata,
+            debug,
+        ))
+        .collect();
+
+    RibResponse { metas, certs }
 }
 
-pub fn process_rib_response(response: RibResponse, store: &Store) -> Result<()> {
+pub fn process_rib_response(response: RibResponse, store: &Store, debug: bool) -> Result<()> {
+    if debug {
+        println!("{:?}", response);
+    }
     for meta in response.metas {
         store.gdp_metadata.put(meta.hash(), meta);
     }
     for cert in response.certs {
         let owner = cert.contents.owner();
-        let meta = store.gdp_metadata.get_unchecked(&owner);
+        let meta = store.gdp_metadata.get_unchecked(owner);
         if let Some(meta) = meta {
             cert.verify(&meta)?;
             match cert.contents {
@@ -142,10 +157,15 @@ pub fn process_rib_response(response: RibResponse, store: &Store) -> Result<()> 
                     expiration_time,
                     ..
                 }) => match proxy {
-                    CertDest::GdpName(gdp_name) => (),
-                    CertDest::IpAddr(ip_addr) => store
-                        .forwarding_table
-                        .put(base, FwdTableEntry::new(ip_addr, expiration_time)),
+                    CertDest::GdpName(_gdp_name) => (),
+                    CertDest::IpAddr(ip_addr) => {
+                        if debug {
+                            println!("Inserting mapping in switch to {:?}", ip_addr);
+                        }
+                        store
+                            .forwarding_table
+                            .put(base, FwdTableEntry::new(ip_addr, expiration_time))
+                    }
                 },
             }
         }
