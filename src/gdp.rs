@@ -122,7 +122,7 @@ impl<T: IpPacket> Gdp<T> {
 
     #[inline]
     pub fn get_certs(&self) -> Result<CertificateBlock> {
-        if (self.payload_len() - self.data_len() == 0) {
+        if self.payload_len() - self.data_len() == 0 {
             Ok(CertificateBlock {
                 certificates: vec![],
             })
@@ -140,12 +140,12 @@ impl<T: IpPacket> Gdp<T> {
 
     #[inline]
     pub fn set_certs(&mut self, certificates: &CertificateBlock) -> Result<()> {
-        let serialized = bincode::serialize(certificates).unwrap(); // todo: avoid allocation, write straight into mbuf!
+        let serialized = bincode::serialize(certificates)?; // todo: avoid allocation, write straight into mbuf!
         let cert_offset = self.payload_offset() + self.data_len();
         if self.mbuf().data_len() != cert_offset {
             self.mbuf_mut().truncate(cert_offset)?;
         }
-        if (serialized.len() > 0) {
+        if !serialized.is_empty() {
             self.mbuf_mut().extend(cert_offset, serialized.len())?;
         }
         self.mbuf_mut().write_data_slice(cert_offset, &serialized)?;

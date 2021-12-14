@@ -1,14 +1,18 @@
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use capsule::config::RuntimeConfig;
 use capsule::Runtime;
 
+use crate::certificates::{CertDest, GdpMeta, RtCert};
 use crate::gdp_pipeline::install_gdp_pipeline;
-use crate::hardcoded_routes::{load_routes, startup_route_lookup};
-use crate::kvs::Store;
+use crate::hardcoded_routes::{
+    gdp_name_of_index, load_routes, metadata_of_index, private_key_of_index, startup_route_lookup,
+};
+use crate::kvs::{GdpName, Store};
 use crate::pipeline::GdpPipeline;
-use crate::rib::{rib_pipeline, Routes};
+use crate::rib::{rib_pipeline, send_rib_query, Routes};
+use crate::ribpayload::RibQuery;
 use crate::statistics::{dump_history, make_print_stats};
 use crate::switch::switch_pipeline;
 
@@ -20,36 +24,71 @@ pub enum ProdMode {
 pub fn start_prod_server(
     config: RuntimeConfig,
     mode: ProdMode,
-    gdp_index: Option<u8>,
+    gdp_index: u8,
     use_default: bool,
 ) -> Result<()> {
-    fn create_rib(_store: Store, routes: &'static Routes, use_default: bool) -> impl GdpPipeline {
+    fn create_rib(
+        _gdp_name: GdpName,
+        _meta: GdpMeta,
+        _private_key: [u8; 32],
+        _store: Store,
+        routes: &'static Routes,
+        use_default: bool,
+    ) -> impl GdpPipeline {
         rib_pipeline("rib", routes, use_default, false)
     }
 
-    fn create_switch(store: Store, routes: &'static Routes, _: bool) -> impl GdpPipeline {
-        switch_pipeline(store, "switch", routes, routes.rib, false)
+    fn create_switch(
+        gdp_name: GdpName,
+        meta: GdpMeta,
+        private_key: [u8; 32],
+        store: Store,
+        routes: &'static Routes,
+        _: bool,
+    ) -> impl GdpPipeline {
+        switch_pipeline(
+            gdp_name,
+            meta,
+            private_key,
+            store,
+            "switch",
+            routes,
+            routes.rib,
+            false,
+        )
     }
 
     fn start<T: GdpPipeline + 'static>(
         config: RuntimeConfig,
-        gdp_index: Option<u8>,
+        gdp_index: u8,
         use_default: bool,
-        pipeline: fn(Store, &'static Routes, bool) -> T,
+        pipeline: fn(GdpName, GdpMeta, [u8; 32], Store, &'static Routes, bool) -> T,
     ) -> Result<()> {
-        let node_addr = gdp_index.and_then(startup_route_lookup);
+        let gdp_name = gdp_name_of_index(gdp_index);
+        let meta = metadata_of_index(gdp_index);
+        let private_key = private_key_of_index(gdp_index);
+        let node_addr =
+            startup_route_lookup(gdp_index).ok_or_else(|| anyhow!("Unknown gdp index!"))?;
 
         let store = Store::new_shared();
         let (print_stats, history_map) = make_print_stats();
         let routes: &'static Routes = Box::leak(Box::new(load_routes()?));
 
+        let cert = RtCert::new_wrapped(meta, private_key, CertDest::IpAddr(node_addr.ip), true)?;
+
         Runtime::build(config)?
             .add_pipeline_to_port("eth1", move |q| {
                 let store = store.sync();
+                send_rib_query(
+                    q.clone(),
+                    node_addr.ip,
+                    routes.rib,
+                    &RibQuery::announce_route(meta, cert.clone()),
+                    "prod",
+                );
                 install_gdp_pipeline(
                     q,
-                    pipeline(store, routes, use_default),
-                    store,
+                    pipeline(gdp_name, meta, private_key, store, routes, use_default),
                     "prod",
                     node_addr,
                     false,

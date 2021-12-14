@@ -1,27 +1,45 @@
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::RwLock;
 
-use anyhow::{anyhow, Result};
-use capsule::batch::Batch;
+use anyhow::Result;
+use capsule::batch::{self, Batch, Pipeline};
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Ethernet, Packet, Udp};
-use capsule::Mbuf;
+use capsule::{Mbuf, PortQueue};
 use serde::Deserialize;
 
-use crate::dtls::DTls;
+use crate::certificates::{Certificate, GdpMeta};
+use crate::dtls::{encrypt_gdp, DTls};
 use crate::gdp::{Gdp, GdpAction};
 use crate::kvs::{GdpName, Store};
-use crate::ribpayload::{RibQuery, RibResponse};
-use crate::{pipeline, FwdTableEntry, GdpPipeline, GdpRoute};
+use crate::ribpayload::{generate_rib_response, process_rib_response, RibQuery, RibResponse};
+use crate::{pipeline, GdpPipeline};
 
 const RIB_PORT: u16 = 27182;
 
 pub struct Routes {
-    pub routes: HashMap<GdpName, GdpRoute>,
+    pub routes: HashMap<GdpName, Route>,
     pub rib: Route,
-    pub default: GdpRoute,
+    pub default: Route,
+    pub dynamic_routes: RwLock<DynamicRoutes>,
+}
+
+pub struct DynamicRoutes {
+    pub locations: HashMap<GdpName, Certificate>,
+    pub next_hop: HashMap<GdpName, Certificate>,
+    pub metadata: HashMap<GdpName, GdpMeta>,
+}
+
+impl DynamicRoutes {
+    pub fn new() -> Self {
+        Self {
+            locations: HashMap::new(),
+            next_hop: HashMap::new(),
+            metadata: HashMap::new(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -32,7 +50,7 @@ pub struct Route {
 
 pub fn create_rib_request(
     message: Mbuf,
-    key: GdpName,
+    query: &RibQuery,
     src_mac: MacAddr,
     src_ip: Ipv4Addr,
     dst_route: Route,
@@ -55,8 +73,7 @@ pub fn create_rib_request(
 
     message.set_action(GdpAction::RibGet);
 
-    let query = RibQuery::new(key);
-    let content = bincode::serialize(&query).unwrap();
+    let content = bincode::serialize(query).unwrap();
     let offset = message.payload_offset();
     message.mbuf_mut().extend(offset, content.len())?;
     message.mbuf_mut().write_data_slice(offset, &content)?;
@@ -67,31 +84,38 @@ pub fn create_rib_request(
     Ok(message)
 }
 
-pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store) -> Result<()> {
+pub fn send_rib_query(
+    q: PortQueue,
+    src_ip: Ipv4Addr,
+    dst_route: Route,
+    query: &RibQuery,
+    nic_name: &str,
+) {
+    let src_mac = q.mac_addr();
+    println!("Sending initial RIB announcement from {}", nic_name);
+    batch::poll_fn(|| Mbuf::alloc_bulk(1).unwrap())
+        .map(move |packet| create_rib_request(packet, query, src_mac, src_ip, dst_route))
+        .map(|packet| Ok(packet.deparse()))
+        .map(encrypt_gdp)
+        .send(q)
+        .run_once();
+}
+
+pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store, debug: bool) -> Result<()> {
     let data_slice = packet
         .mbuf()
-        .read_data_slice(packet.payload_offset(), packet.payload_len())
-        .unwrap();
+        .read_data_slice(packet.payload_offset(), packet.payload_len())?;
     let data_slice_ref = unsafe { data_slice.as_ref() };
-    let response: RibResponse = bincode::deserialize(data_slice_ref).unwrap();
-    let expiration_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        + response.ttl;
-    store.forwarding_table.put(
-        response.gdp_name,
-        FwdTableEntry::new(response.ip, expiration_time),
-    );
-
+    let response: RibResponse = bincode::deserialize(data_slice_ref)?;
+    process_rib_response(response, &store, debug)?;
     Ok(())
 }
 
 fn handle_rib_query(
     packet: &Gdp<Ipv4>,
-    nic_name: &str,
+    _nic_name: &str,
     routes: &Routes,
-    use_default: bool,
+    _use_default: bool,
     debug: bool,
 ) -> Result<Gdp<Ipv4>> {
     // read the query payload
@@ -99,7 +123,7 @@ fn handle_rib_query(
         .mbuf()
         .read_data_slice(packet.payload_offset(), packet.payload_len())?;
     let data_slice_ref = unsafe { data_slice.as_ref() };
-    let query: RibQuery = bincode::deserialize(data_slice_ref).unwrap();
+    let query: RibQuery = bincode::deserialize(data_slice_ref)?;
 
     let dtls = packet.envelope();
     let udp = dtls.envelope();
@@ -123,23 +147,9 @@ fn handle_rib_query(
 
     let mut out = out.push::<Gdp<Ipv4>>()?;
     out.set_action(GdpAction::RibReply);
-    let mut result: Option<&GdpRoute> = routes.routes.get(&query.gdp_name);
-    if result.is_none() {
-        if use_default {
-            result = Some(&routes.default);
-        } else {
-            return Err(anyhow!("GDPName not found!"));
-        }
-    }
-    if debug {
-        println!(
-            "{} replying to query looking up {:?}",
-            nic_name, query.gdp_name
-        );
-    }
-    // TTL default is 4 hours
-    let rib_response = RibResponse::new(query.gdp_name, result.unwrap().route.ip, 14_400);
-    let message = bincode::serialize(&rib_response).unwrap();
+
+    let rib_response = generate_rib_response(query, routes, debug);
+    let message = bincode::serialize(&rib_response)?;
     let offset = out.payload_offset();
     out.mbuf_mut().extend(offset, message.len())?;
     out.mbuf_mut().write_data_slice(offset, &message)?;

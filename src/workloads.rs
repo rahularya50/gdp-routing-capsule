@@ -13,13 +13,18 @@ use rand::Rng;
 use serde::Deserialize;
 use tokio_timer::delay_for;
 
-use crate::certificates::{CertDest, Certificate};
+use crate::certificates::{CertDest, Certificate, RtCert};
 use crate::dtls::{encrypt_gdp, DTls};
 use crate::gdp::{CertificateBlock, Gdp, GdpAction};
-use crate::hardcoded_routes::startup_route_lookup;
+use crate::hardcoded_routes::{
+    gdp_name_of_index, metadata_of_index, private_key_of_index, startup_route_lookup,
+};
+use crate::kvs::GdpName;
+use crate::rib::send_rib_query;
+use crate::ribpayload::RibQuery;
 use crate::schedule::Schedule;
 use crate::statistics::make_print_stats;
-use crate::{dump_history, GdpRoute, Route};
+use crate::{dump_history, Route};
 
 const MSG: &[u8] = &[b'A'; 10000];
 
@@ -40,8 +45,11 @@ fn prep_packet(
     reply: Mbuf,
     src_mac: MacAddr,
     src_ip: Ipv4Addr,
+    src_gdp_name: GdpName,
     dst_mac: MacAddr,
     dst_ip: Ipv4Addr,
+    dst_gdp_name: GdpName,
+    certificates: Vec<Certificate>,
     payload_size: usize,
     random_dest_chance: f32,
 ) -> Result<Gdp<Ipv4>> {
@@ -64,12 +72,13 @@ fn prep_packet(
     let mut reply = reply.push::<Gdp<Ipv4>>()?;
     reply.set_action(GdpAction::Forward);
 
+    reply.set_src(src_gdp_name);
+
     let rval: f32 = rng.gen();
     if rval < random_dest_chance {
         reply.set_dst(rng.gen());
     } else {
-        // GDPName for 3
-        reply.set_dst([219, 7, 67, 226, 220, 186, 158, 191, 36, 25, 189, 224, 136, 27, 238, 169, 102, 104, 154, 38, 252, 68, 249, 190, 247, 173, 178, 151, 14, 211, 126, 232]);
+        reply.set_dst(dst_gdp_name);
     }
 
     reply.set_data_len(payload_size);
@@ -82,13 +91,7 @@ fn prep_packet(
         .mbuf_mut()
         .write_data_slice(offset, &message[..payload_size])?;
 
-    let certificates = vec![Certificate {
-        base: rng.gen(),
-        proxy: CertDest::GdpName(rng.gen()),
-        signature: rng.gen(),
-        bidirectional: true,
-    }];
-    reply.set_certs(&CertificateBlock { certificates }).unwrap();
+    reply.set_certs(&CertificateBlock { certificates })?;
 
     reply.reconcile_all();
 
@@ -105,14 +108,26 @@ fn send_initial_packets(
     random_dest_chance: f32,
 ) {
     let src_mac = q.mac_addr();
+    let src_gdp_name = gdp_name_of_index(1);
+    let dst_gdp_name = gdp_name_of_index(3);
+    let certificates = vec![RtCert::new_wrapped(
+        metadata_of_index(1),
+        private_key_of_index(1),
+        CertDest::GdpName(gdp_name_of_index(2)),
+        true,
+    )
+    .unwrap()];
     batch::poll_fn(|| Mbuf::alloc_bulk(num_packets).unwrap())
         .map(move |packet| {
             prep_packet(
                 packet,
                 src_mac,
                 src_ip,
+                src_gdp_name,
                 switch_route.mac,
                 switch_route.ip,
+                dst_gdp_name,
+                certificates.clone(),
                 payload_size,
                 random_dest_chance,
             )
@@ -135,11 +150,40 @@ pub fn dev_schedule(q: PortQueue, name: &str) -> impl Pipeline + '_ {
         ip: switch_ip,
         mac: switch_mac,
     };
+    let meta = metadata_of_index(1);
+    let private_key = private_key_of_index(1);
+    send_rib_query(
+        q.clone(),
+        src_ip,
+        switch_route,
+        &RibQuery::announce_route(
+            meta,
+            RtCert::new_wrapped(
+                meta,
+                private_key,
+                CertDest::GdpName(gdp_name_of_index(2)),
+                true,
+            )
+            .unwrap(),
+        ),
+        "client",
+    );
+
     Schedule::new(name, async move {
+        delay_for(Duration::from_millis(1000)).await;
         println!("sending initial packet 1");
         send_initial_packet(q.clone(), name, src_ip, switch_route);
-        delay_for(Duration::from_millis(5000)).await;
+        delay_for(Duration::from_millis(1000)).await;
         println!("sending initial packet 2");
+        send_initial_packet(q.clone(), name, src_ip, switch_route);
+        delay_for(Duration::from_millis(1000)).await;
+        println!("sending initial packet 3");
+        send_initial_packet(q.clone(), name, src_ip, switch_route);
+        delay_for(Duration::from_millis(1000)).await;
+        println!("sending initial packet 4");
+        send_initial_packet(q.clone(), name, src_ip, switch_route);
+        delay_for(Duration::from_millis(1000)).await;
+        println!("sending initial packet 4");
         send_initial_packet(q.clone(), name, src_ip, switch_route);
     })
 }

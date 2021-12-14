@@ -1,12 +1,15 @@
 use std::collections::HashMap;
 use std::fs;
+use std::sync::RwLock;
 
 use anyhow::Result;
 use serde::Deserialize;
+use signatory::ed25519::{SigningKey, VerifyingKey, ALGORITHM_ID};
+use signatory::pkcs8::{FromPrivateKey, PrivateKeyInfo};
 
-use crate::certificates::GdpRoute;
+use crate::certificates::GdpMeta;
 use crate::kvs::GdpName;
-use crate::rib::{Route, Routes};
+use crate::rib::{DynamicRoutes, Route, Routes};
 
 #[derive(Deserialize)]
 struct SerializedRoutes {
@@ -17,15 +20,12 @@ struct SerializedRoutes {
 
 pub fn startup_route_lookup(index: u8) -> Option<Route> {
     // FIXME: this is an awful hack, we shouldn't need to read the RIB to get our IP addr!
-    let gdp_name = GdpRoute::gdp_name_of_index(index);
-    Some(
-        load_routes()
-            .ok()?
-            .routes
-            .get(&gdp_name)
-            .map(|route| route.to_owned())?
-            .route,
-    )
+    let gdp_name = gdp_name_of_index(index);
+    load_routes()
+        .ok()?
+        .routes
+        .get(&gdp_name)
+        .map(|route| route.to_owned())
 }
 
 pub fn load_routes() -> Result<Routes> {
@@ -36,14 +36,46 @@ pub fn load_routes() -> Result<Routes> {
         routes: serialized
             .routes
             .iter()
-            .map(|it| -> (GdpName, GdpRoute) {
+            .map(|it| -> (GdpName, Route) {
                 let index = it.0.parse::<u8>().unwrap();
                 let route = it.1.to_owned();
-                let gdp_route = GdpRoute::from_serial_entry(index, route);
-                (gdp_route.name, gdp_route)
+                (gdp_name_of_index(index), route)
             })
             .collect(),
         rib: serialized.rib,
-        default: GdpRoute::from_serial_entry(u8::MAX, serialized.default),
+        default: serialized.default,
+        dynamic_routes: RwLock::new(DynamicRoutes::new()),
     })
+}
+
+pub fn gdp_name_of_index(index: u8) -> GdpName {
+    let (_, verify_key) = gen_keypair_u8(index).unwrap();
+    GdpMeta {
+        pub_key: verify_key.to_bytes(),
+    }
+    .hash()
+}
+
+pub fn private_key_of_index(index: u8) -> [u8; 32] {
+    gen_keypair_u8(index).unwrap().0
+}
+
+pub fn metadata_of_index(index: u8) -> GdpMeta {
+    let (_, verify_key) = gen_keypair_u8(index).unwrap();
+    GdpMeta {
+        pub_key: verify_key.to_bytes(),
+    }
+}
+
+fn gen_keypair_u8(seed: u8) -> Result<([u8; 32], VerifyingKey)> {
+    let mut arr = [0u8; 32];
+    arr[0] = seed; // TODO: load a u8 from the toml
+    gen_keypair(&arr)
+}
+
+fn gen_keypair(seed: &[u8; 32]) -> Result<([u8; 32], VerifyingKey)> {
+    let private_key = PrivateKeyInfo::new(ALGORITHM_ID, seed);
+    let signing_key = SigningKey::from_pkcs8_private_key_info(private_key)?;
+    let verifying_key = signing_key.verifying_key();
+    Ok((seed.to_owned(), verifying_key))
 }
