@@ -6,7 +6,8 @@ use anyhow::{anyhow, Result};
 use capsule::packets::ip::v4::Ipv4;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use signatory::ed25519::{Signature, SigningKey, VerifyingKey};
+use signatory::ed25519::{Signature, SigningKey, VerifyingKey, ALGORITHM_ID};
+use signatory::pkcs8::{FromPrivateKey, PrivateKeyInfo};
 use signatory::signature::{Signer, Verifier};
 
 use crate::gdp::Gdp;
@@ -96,7 +97,7 @@ pub struct RtCert {
 impl RtCert {
     pub fn new_wrapped(
         base: GdpMeta,
-        private_key: SigningKey,
+        private_key: [u8; 32],
         proxy: CertDest,
         bidirectional: bool,
     ) -> Result<Certificate> {
@@ -106,7 +107,11 @@ impl RtCert {
             expiration_time: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() + 4 * 60 * 60,
             bidirectional,
         });
-        let signature = contents.sign(private_key)?.into();
+        let signing_key = SigningKey::from_pkcs8_private_key_info(PrivateKeyInfo::new(
+            ALGORITHM_ID,
+            &private_key,
+        ))?;
+        let signature = contents.sign(signing_key)?.into();
         Ok(Certificate {
             contents,
             signature,

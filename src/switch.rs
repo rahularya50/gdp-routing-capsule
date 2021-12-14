@@ -7,8 +7,8 @@ use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Packet, Udp};
 use capsule::Mbuf;
 
-use crate::certificates::check_packet_certificates;
-use crate::gdp::{Gdp, GdpAction};
+use crate::certificates::{check_packet_certificates, CertDest, GdpMeta, RtCert};
+use crate::gdp::{CertificateBlock, Gdp, GdpAction};
 use crate::gdpbatch::GdpBatch;
 use crate::kvs::{GdpName, Store};
 use crate::pipeline::GdpPipeline;
@@ -39,6 +39,28 @@ fn bounce_udp(udp: &mut Udp<Ipv4>) {
     ethernet.set_dst(eth_dst);
 }
 
+fn add_forwarding_cert(
+    mut gdp: Gdp<Ipv4>,
+    store: Store,
+    meta: GdpMeta,
+    private_key: [u8; 32],
+) -> Result<Gdp<Ipv4>> {
+    let CertificateBlock { mut certificates } = gdp.get_certs()?;
+
+    let cert = match store.route_certs.get(&gdp.dst()) {
+        Some(cert) => cert,
+        None => {
+            let cert = RtCert::new_wrapped(meta, private_key, CertDest::GdpName(gdp.dst()), false)?;
+            store.route_certs.put(gdp.dst(), cert.clone());
+            cert
+        }
+    };
+
+    certificates.push(cert);
+    gdp.set_certs(&CertificateBlock { certificates })?;
+    Ok(gdp)
+}
+
 fn forward_gdp(mut gdp: Gdp<Ipv4>, dst: Route) -> Result<Either<Gdp<Ipv4>>> {
     let dtls = gdp.envelope_mut();
     let udp = dtls.envelope_mut();
@@ -56,7 +78,6 @@ fn forward_gdp(mut gdp: Gdp<Ipv4>, dst: Route) -> Result<Either<Gdp<Ipv4>>> {
     let ethernet = ipv4.envelope_mut();
     ethernet.set_src(ethernet.dst());
     ethernet.set_dst(dst.mac);
-
     Ok(Either::Keep(gdp))
 }
 
@@ -73,6 +94,8 @@ fn bounce_gdp(mut gdp: Gdp<Ipv4>) -> Result<Gdp<Ipv4>> {
 
 pub fn switch_pipeline(
     gdp_name: GdpName,
+    meta: GdpMeta,
+    private_key: [u8; 32],
     store: Store,
     nic_name: &'static str,
     routes: &'static Routes,
@@ -113,6 +136,7 @@ pub fn switch_pipeline(
                                         if debug {
                                             println!("{} forwarding packet to ip {} mac {}", nic_name, ip, mac);
                                         }
+                                        let packet = add_forwarding_cert(packet, store, meta, private_key)?;
                                         forward_gdp(packet, Route {ip, mac})
                                     })
                                 }

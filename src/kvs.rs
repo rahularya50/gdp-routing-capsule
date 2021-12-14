@@ -3,12 +3,13 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::net::Ipv4Addr;
+use std::ops::Add;
 use std::sync::RwLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use lru::LruCache;
 
-use crate::certificates::GdpMeta;
+use crate::certificates::{CertContents, Certificate, GdpMeta, RtCert};
 
 pub type GdpName = [u8; 32];
 
@@ -38,11 +39,35 @@ impl Expirable for FwdTableEntry {
     }
 }
 
-#[derive(Copy, Clone)]
+impl Expirable for Certificate {
+    fn is_expired(&self) -> bool {
+        match self.contents {
+            CertContents::RtCert(RtCert {
+                expiration_time, ..
+            }) => {
+                // RtCerts should last for at least one hour, or we should regenerate them
+                // we normally create them to last for four hours
+                Duration::from_secs(expiration_time)
+                    < SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .add(Duration::from_secs(60 * 60))
+            }
+        }
+    }
+}
+
 pub struct SharedCache<K, V>(&'static RwLock<HashMap<K, V>>)
 where
     K: 'static,
     V: 'static;
+
+impl<K, V> Copy for SharedCache<K, V> {}
+impl<K, V> Clone for SharedCache<K, V> {
+    fn clone(&self) -> Self {
+        SharedCache(self.0)
+    }
+}
 
 impl<K, V> SharedCache<K, V>
 where
@@ -92,7 +117,6 @@ where
     }
 }
 
-#[derive(Copy, Clone)]
 pub struct SyncCache<K, V>
 where
     K: 'static,
@@ -100,6 +124,16 @@ where
 {
     local: &'static RefCell<LruCache<K, V>>,
     global: &'static RwLock<HashMap<K, V>>,
+}
+
+impl<K, V> Copy for SyncCache<K, V> {}
+impl<K, V> Clone for SyncCache<K, V> {
+    fn clone(&self) -> Self {
+        SyncCache {
+            local: self.local,
+            global: self.global,
+        }
+    }
 }
 
 impl<K: Eq + Hash, V> SharedCache<K, V> {
@@ -167,6 +201,7 @@ pub struct SharedStore {
     forwarding_table: SharedCache<GdpName, FwdTableEntry>,
     nack_reply_cache: SharedCache<GdpName, FwdTableEntry>,
     gdp_metadata: SharedCache<GdpName, GdpMeta>,
+    route_certs: SharedCache<GdpName, Certificate>,
 }
 
 impl SharedStore {
@@ -175,6 +210,7 @@ impl SharedStore {
             forwarding_table: SharedCache::new(),
             nack_reply_cache: SharedCache::new(),
             gdp_metadata: SharedCache::new(),
+            route_certs: SharedCache::new(),
         }
     }
 
@@ -183,12 +219,14 @@ impl SharedStore {
             forwarding_table: self.forwarding_table.sync(),
             nack_reply_cache: self.nack_reply_cache.sync(),
             gdp_metadata: self.gdp_metadata.sync(),
+            route_certs: self.route_certs.sync(),
         }
     }
 
     pub fn run_active_expire(&self) {
         self.forwarding_table.run_active_expire();
         self.nack_reply_cache.run_active_expire();
+        self.route_certs.run_active_expire();
     }
 }
 #[derive(Copy, Clone)]
@@ -196,6 +234,7 @@ pub struct Store {
     pub forwarding_table: SyncCache<GdpName, FwdTableEntry>,
     pub nack_reply_cache: SyncCache<GdpName, FwdTableEntry>,
     pub gdp_metadata: SyncCache<GdpName, GdpMeta>,
+    pub route_certs: SyncCache<GdpName, Certificate>,
 }
 
 impl Store {

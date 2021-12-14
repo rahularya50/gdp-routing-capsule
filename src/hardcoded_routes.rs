@@ -56,7 +56,7 @@ pub fn gdp_name_of_index(index: u8) -> GdpName {
     .hash()
 }
 
-pub fn private_key_of_index(index: u8) -> SigningKey {
+pub fn private_key_of_index(index: u8) -> [u8; 32] {
     gen_keypair_u8(index).unwrap().0
 }
 
@@ -67,15 +67,15 @@ pub fn metadata_of_index(index: u8) -> GdpMeta {
     }
 }
 
-fn gen_keypair_u8(seed: u8) -> Result<(SigningKey, VerifyingKey)> {
+fn gen_keypair_u8(seed: u8) -> Result<([u8; 32], VerifyingKey)> {
     let mut arr = [0u8; 32];
     arr[0] = seed; // TODO: load a u8 from the toml
     gen_keypair(&arr)
 }
 
-fn gen_keypair(seed: &[u8; 32]) -> Result<(SigningKey, VerifyingKey)> {
-    let signing_key =
-        SigningKey::from_pkcs8_private_key_info(PrivateKeyInfo::new(ALGORITHM_ID, seed))?;
+fn gen_keypair(seed: &[u8; 32]) -> Result<([u8; 32], VerifyingKey)> {
+    let private_key = PrivateKeyInfo::new(ALGORITHM_ID, seed);
+    let signing_key = SigningKey::from_pkcs8_private_key_info(private_key)?;
     let verifying_key = signing_key.verifying_key();
-    Ok((signing_key, verifying_key))
+    Ok((seed.to_owned(), verifying_key))
 }

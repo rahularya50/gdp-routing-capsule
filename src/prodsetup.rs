@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use capsule::config::RuntimeConfig;
 use capsule::Runtime;
 
-use crate::certificates::{CertDest, RtCert};
+use crate::certificates::{CertDest, GdpMeta, RtCert};
 use crate::gdp_pipeline::install_gdp_pipeline;
 use crate::hardcoded_routes::{
     gdp_name_of_index, load_routes, metadata_of_index, private_key_of_index, startup_route_lookup,
@@ -29,6 +29,8 @@ pub fn start_prod_server(
 ) -> Result<()> {
     fn create_rib(
         _gdp_name: GdpName,
+        _meta: GdpMeta,
+        _private_key: [u8; 32],
         _store: Store,
         routes: &'static Routes,
         use_default: bool,
@@ -38,18 +40,29 @@ pub fn start_prod_server(
 
     fn create_switch(
         gdp_name: GdpName,
+        meta: GdpMeta,
+        private_key: [u8; 32],
         store: Store,
         routes: &'static Routes,
         _: bool,
     ) -> impl GdpPipeline {
-        switch_pipeline(gdp_name, store, "switch", routes, routes.rib, false)
+        switch_pipeline(
+            gdp_name,
+            meta,
+            private_key,
+            store,
+            "switch",
+            routes,
+            routes.rib,
+            false,
+        )
     }
 
     fn start<T: GdpPipeline + 'static>(
         config: RuntimeConfig,
         gdp_index: u8,
         use_default: bool,
-        pipeline: fn(GdpName, Store, &'static Routes, bool) -> T,
+        pipeline: fn(GdpName, GdpMeta, [u8; 32], Store, &'static Routes, bool) -> T,
     ) -> Result<()> {
         let gdp_name = gdp_name_of_index(gdp_index);
         let meta = metadata_of_index(gdp_index);
@@ -75,7 +88,7 @@ pub fn start_prod_server(
                 );
                 install_gdp_pipeline(
                     q,
-                    pipeline(gdp_name, store, routes, use_default),
+                    pipeline(gdp_name, meta, private_key, store, routes, use_default),
                     "prod",
                     node_addr,
                     false,

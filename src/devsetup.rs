@@ -33,6 +33,8 @@ pub fn start_dev_server(config: RuntimeConfig) -> Result<()> {
         mac: MacAddr::new(0x02, 0x00, 0x00, 0xFF, 0xFF, 0x00),
     };
 
+    const DEBUG: bool = true;
+
     Runtime::build(config)?
         // GDP index = 4
         .add_pipeline_to_port("eth1", move |q| {
@@ -43,10 +45,10 @@ pub fn start_dev_server(config: RuntimeConfig) -> Result<()> {
             };
             install_gdp_pipeline(
                 q,
-                rib_pipeline(name, routes, false, true),
+                rib_pipeline(name, routes, false, DEBUG),
                 name,
                 route,
-                true,
+                DEBUG,
             )
         })?
         // GDP index = 1
@@ -76,15 +78,17 @@ pub fn start_dev_server(config: RuntimeConfig) -> Result<()> {
                 q,
                 switch_pipeline(
                     gdp_name_of_index(2),
+                    meta,
+                    private_key,
                     store3_local,
                     name,
                     routes,
                     rib_route,
-                    true,
+                    DEBUG,
                 ),
                 name,
                 node_route,
-                true,
+                DEBUG,
             )
         })?
         // GDP index = 3
@@ -112,15 +116,17 @@ pub fn start_dev_server(config: RuntimeConfig) -> Result<()> {
                 q,
                 switch_pipeline(
                     gdp_name_of_index(3),
+                    meta,
+                    private_key,
                     store4_local,
                     name,
                     routes,
                     rib_route,
-                    true,
+                    DEBUG,
                 ),
                 name,
                 node_route,
-                true,
+                DEBUG,
             )
         })?
         // .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
