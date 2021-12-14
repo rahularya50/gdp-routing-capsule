@@ -1,24 +1,21 @@
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
-use std::sync::{Mutex, RwLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::RwLock;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use capsule::batch::{self, Batch, Pipeline};
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Ethernet, Packet, Udp};
-use capsule::Mbuf;
+use capsule::{Mbuf, PortQueue};
 use serde::Deserialize;
 
 use crate::certificates::{Certificate, GdpMeta};
-use crate::dtls::encrypt_gdp;
-use crate::dtls::DTls;
+use crate::dtls::{encrypt_gdp, DTls};
 use crate::gdp::{Gdp, GdpAction};
 use crate::kvs::{GdpName, Store};
 use crate::ribpayload::{generate_rib_response, process_rib_response, RibQuery, RibResponse};
-use crate::{pipeline, FwdTableEntry, GdpPipeline};
-use capsule::PortQueue;
+use crate::{pipeline, GdpPipeline};
 
 const RIB_PORT: u16 = 27182;
 
@@ -116,9 +113,9 @@ pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store) -> Result<()> {
 
 fn handle_rib_query(
     packet: &Gdp<Ipv4>,
-    nic_name: &str,
+    _nic_name: &str,
     routes: &Routes,
-    use_default: bool,
+    _use_default: bool,
     debug: bool,
 ) -> Result<Gdp<Ipv4>> {
     // read the query payload

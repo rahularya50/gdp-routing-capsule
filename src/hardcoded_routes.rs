@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
+use std::sync::RwLock;
 
 use anyhow::Result;
 use serde::Deserialize;
@@ -9,7 +10,6 @@ use signatory::pkcs8::{FromPrivateKey, PrivateKeyInfo};
 use crate::certificates::GdpMeta;
 use crate::kvs::GdpName;
 use crate::rib::{DynamicRoutes, Route, Routes};
-use std::sync::RwLock;
 
 #[derive(Deserialize)]
 struct SerializedRoutes {

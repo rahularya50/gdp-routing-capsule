@@ -1,5 +1,7 @@
 use std::mem;
 use std::net::Ipv4Addr;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 use anyhow::{anyhow, Result};
 use capsule::packets::ip::v4::Ipv4;
@@ -11,7 +13,7 @@ use signatory::signature::{Signer, Verifier};
 use crate::gdp::Gdp;
 use crate::kvs::{GdpName, Store};
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct GdpMeta {
     pub pub_key: [u8; 32], // TODO: compute hash on initialization
 }
@@ -83,6 +85,7 @@ impl CertContents {
 pub struct RtCert {
     pub base: GdpName,
     pub proxy: CertDest,
+    pub expiration_time: u64,
 
     /*
         Whether we can send messages to the base via the proxy,
@@ -101,6 +104,7 @@ impl RtCert {
         let contents = CertContents::RtCert(RtCert {
             base: base.hash(),
             proxy,
+            expiration_time: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() + 4 * 60 * 60,
             bidirectional,
         });
         let signature = contents.sign(private_key)?.into();
@@ -120,31 +124,42 @@ pub enum CertDest {
 pub fn check_packet_certificates(
     gdp_name: GdpName,
     packet: &Gdp<Ipv4>,
-    _store: &Store,
+    store: &Store,
     _needed_metas: Option<&mut Vec<GdpName>>,
     nic_name: &str,
     debug: bool,
 ) -> bool {
     if let Ok(certs) = packet.get_certs() {
-        // if debug {
-        //     println!("{} received packet with certificates {:?}", nic_name, certs);
-        // }
-        // let mut pos = packet.src();
-        // for cert in certs.certificates {
-        //     if cert.contents.owner() != pos {
-        //         return false;
-        //     }
-        //     match cert.contents {
-        //         CertContents::RtCert(RtCert {
-        //             proxy: CertDest::GdpName(proxy),
-        //             ..
-        //         }) => pos = proxy,
-        //         _ => return false,
-        //     }
-        // }
-        // if pos != gdp_name {
-        //     return false;
-        // }
+        if debug {
+            println!("{} received packet with certificates {:?}", nic_name, certs);
+        }
+        let mut pos = packet.src();
+        for cert in certs.certificates {
+            if cert.contents.owner() != pos {
+                println!("owner mismatch {:?} {:?}", cert.contents.owner(), pos);
+                return false;
+            }
+            if let Some(metadata) = store.gdp_metadata.get_unchecked(&pos) {
+                if cert.verify(&metadata).is_err() {
+                    println!("incorrect signature");
+                    return false;
+                }
+            }
+            match cert.contents {
+                CertContents::RtCert(RtCert {
+                    proxy: CertDest::GdpName(proxy),
+                    ..
+                }) => pos = proxy,
+                _ => {
+                    println!("not a gdpname rtcert");
+                    return false;
+                }
+            }
+        }
+        if pos != gdp_name {
+            println!("didn't end up at target");
+            return false;
+        }
         true
     } else {
         false

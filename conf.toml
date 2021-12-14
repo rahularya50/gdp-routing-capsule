@@ -27,3 +27,9 @@ duration = 20
     rxd = 512
     txd = 512
 
+[[ports]]
+    name = "eth4"
+    device = "0000:00:10.0"
+    cores = [0]
+    rxd = 512
+    txd = 512

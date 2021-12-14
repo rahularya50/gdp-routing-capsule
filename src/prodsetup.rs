@@ -4,8 +4,7 @@ use anyhow::{anyhow, Result};
 use capsule::config::RuntimeConfig;
 use capsule::Runtime;
 
-use crate::certificates::CertDest;
-use crate::certificates::RtCert;
+use crate::certificates::{CertDest, RtCert};
 use crate::gdp_pipeline::install_gdp_pipeline;
 use crate::hardcoded_routes::{
     gdp_name_of_index, load_routes, metadata_of_index, private_key_of_index, startup_route_lookup,

@@ -13,12 +13,13 @@ use rand::Rng;
 use serde::Deserialize;
 use tokio_timer::delay_for;
 
-use crate::certificates::{CertDest, RtCert};
+use crate::certificates::{CertDest, Certificate, RtCert};
 use crate::dtls::{encrypt_gdp, DTls};
 use crate::gdp::{CertificateBlock, Gdp, GdpAction};
 use crate::hardcoded_routes::{
     gdp_name_of_index, metadata_of_index, private_key_of_index, startup_route_lookup,
 };
+use crate::kvs::GdpName;
 use crate::rib::send_rib_query;
 use crate::ribpayload::RibQuery;
 use crate::schedule::Schedule;
@@ -44,9 +45,11 @@ fn prep_packet(
     reply: Mbuf,
     src_mac: MacAddr,
     src_ip: Ipv4Addr,
+    src_gdp_name: GdpName,
     dst_mac: MacAddr,
     dst_ip: Ipv4Addr,
     dst_gdp_name: GdpName,
+    certificates: Vec<Certificate>,
     payload_size: usize,
     random_dest_chance: f32,
 ) -> Result<Gdp<Ipv4>> {
@@ -69,6 +72,8 @@ fn prep_packet(
     let mut reply = reply.push::<Gdp<Ipv4>>()?;
     reply.set_action(GdpAction::Forward);
 
+    reply.set_src(src_gdp_name);
+
     let rval: f32 = rng.gen();
     if rval < random_dest_chance {
         reply.set_dst(rng.gen());
@@ -86,13 +91,6 @@ fn prep_packet(
         .mbuf_mut()
         .write_data_slice(offset, &message[..payload_size])?;
 
-    let gdp_index = 0;
-    let certificates = vec![RtCert::new_wrapped(
-        metadata_of_index(gdp_index),
-        private_key_of_index(gdp_index),
-        CertDest::GdpName(rng.gen()),
-        true,
-    )?];
     reply.set_certs(&CertificateBlock { certificates })?;
 
     reply.reconcile_all();
@@ -110,16 +108,26 @@ fn send_initial_packets(
     random_dest_chance: f32,
 ) {
     let src_mac = q.mac_addr();
+    let src_gdp_name = gdp_name_of_index(1);
     let dst_gdp_name = gdp_name_of_index(3);
+    let certificates = vec![RtCert::new_wrapped(
+        metadata_of_index(1),
+        private_key_of_index(1),
+        CertDest::GdpName(gdp_name_of_index(2)),
+        true,
+    )
+    .unwrap()];
     batch::poll_fn(|| Mbuf::alloc_bulk(num_packets).unwrap())
         .map(move |packet| {
             prep_packet(
                 packet,
                 src_mac,
                 src_ip,
+                src_gdp_name,
                 switch_route.mac,
                 switch_route.ip,
                 dst_gdp_name,
+                certificates.clone(),
                 payload_size,
                 random_dest_chance,
             )

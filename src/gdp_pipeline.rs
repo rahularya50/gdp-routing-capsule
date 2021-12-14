@@ -3,10 +3,8 @@ use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Ethernet, Packet, Udp};
 use capsule::PortQueue;
 
-use crate::certificates::GdpMeta;
 use crate::dtls::{decrypt_gdp, encrypt_gdp, DTls};
 use crate::gdp::{Gdp, GdpAction};
-use crate::kvs::Store;
 use crate::pipeline::GdpPipeline;
 use crate::rib::Route;
 

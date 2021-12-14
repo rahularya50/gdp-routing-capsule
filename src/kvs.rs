@@ -8,6 +8,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use lru::LruCache;
 
+use crate::certificates::GdpMeta;
+
 pub type GdpName = [u8; 32];
 
 pub trait Expirable {
@@ -100,7 +102,7 @@ where
     global: &'static RwLock<HashMap<K, V>>,
 }
 
-impl<K: std::cmp::Eq + std::hash::Hash, V> SharedCache<K, V> {
+impl<K: Eq + Hash, V> SharedCache<K, V> {
     fn new() -> Self {
         Self(Box::leak(Box::new(RwLock::new(HashMap::new()))))
     }
@@ -118,7 +120,7 @@ where
     K: Eq + Hash + Copy + Debug,
     V: Clone + Debug,
 {
-    fn get_unchecked(&self, k: &K) -> Option<V> {
+    pub fn get_unchecked(&self, k: &K) -> Option<V> {
         let mut m = self.local.borrow_mut();
         if m.contains(k) {
             return m.get(k).cloned();
@@ -164,6 +166,7 @@ where
 pub struct SharedStore {
     forwarding_table: SharedCache<GdpName, FwdTableEntry>,
     nack_reply_cache: SharedCache<GdpName, FwdTableEntry>,
+    gdp_metadata: SharedCache<GdpName, GdpMeta>,
 }
 
 impl SharedStore {
@@ -171,6 +174,7 @@ impl SharedStore {
         SharedStore {
             forwarding_table: SharedCache::new(),
             nack_reply_cache: SharedCache::new(),
+            gdp_metadata: SharedCache::new(),
         }
     }
 
@@ -178,6 +182,7 @@ impl SharedStore {
         Store {
             forwarding_table: self.forwarding_table.sync(),
             nack_reply_cache: self.nack_reply_cache.sync(),
+            gdp_metadata: self.gdp_metadata.sync(),
         }
     }
 
@@ -190,6 +195,7 @@ impl SharedStore {
 pub struct Store {
     pub forwarding_table: SyncCache<GdpName, FwdTableEntry>,
     pub nack_reply_cache: SyncCache<GdpName, FwdTableEntry>,
+    pub gdp_metadata: SyncCache<GdpName, GdpMeta>,
 }
 
 impl Store {

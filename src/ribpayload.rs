@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::iter::empty;
-use std::net::Ipv4Addr;
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -8,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::certificates::{CertContents, CertDest, Certificate, GdpMeta, RtCert};
 use crate::kvs::{GdpName, Store};
 use crate::rib::{DynamicRoutes, Routes};
+use crate::FwdTableEntry;
 
 #[derive(Deserialize, Serialize)]
 pub struct RibQuery {
@@ -52,8 +52,8 @@ impl RibQuery {
 
 #[derive(Deserialize, Serialize)]
 pub struct RibResponse {
-    metas: Vec<GdpMeta>,
-    certs: Vec<Certificate>,
+    pub metas: Vec<GdpMeta>,
+    pub certs: Vec<Certificate>,
 }
 
 fn insert_cert(cert: Certificate, routes: &mut DynamicRoutes) -> Result<()> {
@@ -65,7 +65,7 @@ fn insert_cert(cert: Certificate, routes: &mut DynamicRoutes) -> Result<()> {
     cert.verify(gdp_metadata)?;
     match cert.contents {
         CertContents::RtCert(RtCert { ref proxy, .. }) => match proxy {
-            CertDest::GdpName(dest) => {
+            CertDest::GdpName(_dest) => {
                 println!("RIB recording delegation");
                 routes.next_hop.insert(gdp_name, cert);
             }
@@ -127,10 +127,28 @@ pub fn generate_rib_response(query: RibQuery, routes: &Routes, debug: bool) -> R
 }
 
 pub fn process_rib_response(response: RibResponse, store: &Store) -> Result<()> {
-    // let expiration_time = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() + response.ttl;
-    // store.forwarding_table.put(
-    //     response.gdp_name,
-    //     FwdTableEntry::new(response.ip, expiration_time),
-    // );
+    for meta in response.metas {
+        store.gdp_metadata.put(meta.hash(), meta);
+    }
+    for cert in response.certs {
+        let owner = cert.contents.owner();
+        let meta = store.gdp_metadata.get_unchecked(&owner);
+        if let Some(meta) = meta {
+            cert.verify(&meta)?;
+            match cert.contents {
+                CertContents::RtCert(RtCert {
+                    base,
+                    proxy,
+                    expiration_time,
+                    ..
+                }) => match proxy {
+                    CertDest::GdpName(gdp_name) => (),
+                    CertDest::IpAddr(ip_addr) => store
+                        .forwarding_table
+                        .put(base, FwdTableEntry::new(ip_addr, expiration_time)),
+                },
+            }
+        }
+    }
     Ok(())
 }
