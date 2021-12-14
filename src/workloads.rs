@@ -46,6 +46,7 @@ fn prep_packet(
     src_ip: Ipv4Addr,
     dst_mac: MacAddr,
     dst_ip: Ipv4Addr,
+    dst_gdp_name: GdpName,
     payload_size: usize,
     random_dest_chance: f32,
 ) -> Result<Gdp<Ipv4>> {
@@ -72,7 +73,7 @@ fn prep_packet(
     if rval < random_dest_chance {
         reply.set_dst(rng.gen());
     } else {
-        reply.set_dst(gdp_name_of_index(3));
+        reply.set_dst(dst_gdp_name);
     }
 
     reply.set_data_len(payload_size);
@@ -109,6 +110,7 @@ fn send_initial_packets(
     random_dest_chance: f32,
 ) {
     let src_mac = q.mac_addr();
+    let dst_gdp_name = gdp_name_of_index(3);
     batch::poll_fn(|| Mbuf::alloc_bulk(num_packets).unwrap())
         .map(move |packet| {
             prep_packet(
@@ -117,6 +119,7 @@ fn send_initial_packets(
                 src_ip,
                 switch_route.mac,
                 switch_route.ip,
+                dst_gdp_name,
                 payload_size,
                 random_dest_chance,
             )
