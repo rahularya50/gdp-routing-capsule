@@ -103,7 +103,7 @@ pub fn switch_pipeline(
                     true => |group| {
                         group.filter_map(move |packet| {
                             let ip = find_destination(&packet, store).unwrap();
-                            let mac = routes.routes.get(&packet.dst()).unwrap_or(&routes.default).route.mac; // FIXME - this is a hack!!!
+                            let mac = routes.routes.get(&packet.dst()).unwrap_or(&routes.default).mac; // FIXME - this is a hack!!!
                             if debug {
                                 println!("{} forwarding packet to ip {} mac {}", nic_name, ip, mac);
                             }
@@ -131,7 +131,7 @@ pub fn switch_pipeline(
         GdpAction::Nack => |group| {
             group.filter_map(move |packet| {
                 let route = store.nack_reply_cache.get(&packet.src());
-                let mac = routes.routes.get(&packet.dst()).unwrap_or(&routes.default).route.mac; // FIXME - this is a hack!!!
+                let mac = routes.routes.get(&packet.dst()).unwrap_or(&routes.default).mac; // FIXME - this is a hack!!!
                 match route {
                     Some(FwdTableEntry { ip, .. }) => forward_gdp(packet, Route { ip, mac }),
                     None => Ok(Either::Drop(packet.reset())),

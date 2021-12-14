@@ -4,9 +4,8 @@ use anyhow::Result;
 use capsule::config::RuntimeConfig;
 use capsule::Runtime;
 
-use crate::certificates::GdpRoute;
 use crate::gdp_pipeline::install_gdp_pipeline;
-use crate::hardcoded_routes::{load_routes, startup_route_lookup};
+use crate::hardcoded_routes::{gdp_name_of_index, load_routes, startup_route_lookup};
 use crate::kvs::{GdpName, Store};
 use crate::pipeline::GdpPipeline;
 use crate::rib::{rib_pipeline, Routes};
@@ -48,7 +47,7 @@ pub fn start_prod_server(
         use_default: bool,
         pipeline: fn(GdpName, Store, &'static Routes, bool) -> T,
     ) -> Result<()> {
-        let gdp_name = GdpRoute::gdp_name_of_index(gdp_index);
+        let gdp_name = gdp_name_of_index(gdp_index);
         let node_addr = startup_route_lookup(gdp_index);
 
         let store = Store::new_shared();

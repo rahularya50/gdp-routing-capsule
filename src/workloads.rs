@@ -16,10 +16,12 @@ use tokio_timer::delay_for;
 use crate::certificates::{CertDest, RtCert};
 use crate::dtls::{encrypt_gdp, DTls};
 use crate::gdp::{CertificateBlock, Gdp, GdpAction};
-use crate::hardcoded_routes::startup_route_lookup;
+use crate::hardcoded_routes::{
+    gdp_name_of_index, metadata_of_index, private_key_of_index, startup_route_lookup,
+};
 use crate::schedule::Schedule;
 use crate::statistics::make_print_stats;
-use crate::{dump_history, GdpRoute, Route};
+use crate::{dump_history, Route};
 
 const MSG: &[u8] = &[b'A'; 10000];
 
@@ -68,7 +70,7 @@ fn prep_packet(
     if rval < random_dest_chance {
         reply.set_dst(rng.gen());
     } else {
-        reply.set_dst(GdpRoute::gdp_name_of_index(3));
+        reply.set_dst(gdp_name_of_index(3));
     }
 
     reply.set_data_len(payload_size);
@@ -83,15 +85,8 @@ fn prep_packet(
 
     let gdp_index = 0;
     let certificates = vec![RtCert::new_wrapped(
-        GdpRoute::from_serial_entry(
-            gdp_index,
-            Route {
-                ip: src_ip,
-                mac: src_mac,
-            },
-        )
-        .meta,
-        GdpRoute::private_key_of_index(gdp_index),
+        metadata_of_index(gdp_index),
+        private_key_of_index(gdp_index),
         CertDest::GdpName(rng.gen()),
         true,
     )?];

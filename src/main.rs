@@ -9,7 +9,6 @@ use clap::{arg_enum, clap_app, value_t};
 use tracing::Level;
 use tracing_subscriber::fmt;
 
-use crate::certificates::{test_signatures, GdpRoute};
 use crate::devsetup::start_dev_server;
 use crate::dtls::DTls;
 use crate::kvs::FwdTableEntry;
@@ -47,8 +46,6 @@ arg_enum! {
 }
 
 fn main() -> Result<()> {
-    test_signatures(b"go bears").unwrap();
-
     let subscriber = fmt::Subscriber::builder()
         .with_max_level(Level::WARN)
         .finish();

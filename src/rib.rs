@@ -14,14 +14,14 @@ use crate::dtls::DTls;
 use crate::gdp::{Gdp, GdpAction};
 use crate::kvs::{GdpName, Store};
 use crate::ribpayload::{RibQuery, RibResponse};
-use crate::{pipeline, FwdTableEntry, GdpPipeline, GdpRoute};
+use crate::{pipeline, FwdTableEntry, GdpPipeline};
 
 const RIB_PORT: u16 = 27182;
 
 pub struct Routes {
-    pub routes: HashMap<GdpName, GdpRoute>,
+    pub routes: HashMap<GdpName, Route>,
     pub rib: Route,
-    pub default: GdpRoute,
+    pub default: Route,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -121,7 +121,7 @@ fn handle_rib_query(
 
     let mut out = out.push::<Gdp<Ipv4>>()?;
     out.set_action(GdpAction::RibReply);
-    let mut result: Option<&GdpRoute> = routes.routes.get(&query.gdp_name);
+    let mut result: Option<&Route> = routes.routes.get(&query.gdp_name);
     if result.is_none() {
         if use_default {
             result = Some(&routes.default);
@@ -136,7 +136,7 @@ fn handle_rib_query(
         );
     }
     // TTL default is 4 hours
-    let rib_response = RibResponse::new(query.gdp_name, result.unwrap().route.ip, 14_400);
+    let rib_response = RibResponse::new(query.gdp_name, result.unwrap().ip, 14_400);
     let message = bincode::serialize(&rib_response).unwrap();
     let offset = out.payload_offset();
     out.mbuf_mut().extend(offset, message.len())?;

@@ -6,9 +6,8 @@ use capsule::config::RuntimeConfig;
 use capsule::net::MacAddr;
 use capsule::Runtime;
 
-use crate::certificates::GdpRoute;
 use crate::gdp_pipeline::install_gdp_pipeline;
-use crate::hardcoded_routes::load_routes;
+use crate::hardcoded_routes::{gdp_name_of_index, load_routes};
 use crate::kvs::Store;
 use crate::rib::{rib_pipeline, Route, Routes};
 use crate::statistics::{dump_history, make_print_stats};
@@ -46,7 +45,7 @@ pub fn start_dev_server(config: RuntimeConfig) -> Result<()> {
             install_gdp_pipeline(
                 q,
                 switch_pipeline(
-                    GdpRoute::gdp_name_of_index(3),
+                    gdp_name_of_index(3),
                     store3_local,
                     name,
                     routes,
