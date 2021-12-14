@@ -124,10 +124,11 @@ pub fn check_packet_certificates(
     gdp_name: GdpName,
     packet: &Gdp<Ipv4>,
     store: &Store,
-    _needed_metas: Option<&mut Vec<GdpName>>,
+    mut needed_metas: Option<&mut Vec<GdpName>>,
     nic_name: &str,
     debug: bool,
 ) -> bool {
+    let mut ok = true;
     if let Ok(certs) = packet.get_certs() {
         if debug {
             println!("{} received packet with certificates {:?}", nic_name, certs);
@@ -143,6 +144,11 @@ pub fn check_packet_certificates(
                     println!("incorrect signature");
                     return false;
                 }
+            } else if let Some(ref mut needed_metas) = needed_metas {
+                needed_metas.push(pos);
+                ok = false;
+            } else {
+                return false;
             }
             match cert.contents {
                 CertContents::RtCert(RtCert {
@@ -159,7 +165,7 @@ pub fn check_packet_certificates(
             println!("didn't end up at target");
             return false;
         }
-        true
+        ok
     } else {
         false
     }

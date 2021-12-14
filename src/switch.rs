@@ -61,10 +61,13 @@ fn forward_gdp(mut gdp: Gdp<Ipv4>, dst: Route) -> Result<Either<Gdp<Ipv4>>> {
 }
 
 fn bounce_gdp(mut gdp: Gdp<Ipv4>) -> Result<Gdp<Ipv4>> {
-    gdp.remove_payload()?;
-    gdp.set_action(GdpAction::Nack);
-    bounce_udp(gdp.envelope_mut().envelope_mut());
-    gdp.reconcile_all();
+    if gdp.action()? == GdpAction::Forward {
+        gdp.remove_payload()?;
+        gdp.set_data_len(0);
+        gdp.set_action(GdpAction::Nack);
+        bounce_udp(gdp.envelope_mut().envelope_mut());
+        gdp.reconcile_all();
+    }
     Ok(gdp)
 }
 
@@ -79,49 +82,71 @@ pub fn switch_pipeline(
     pipeline! {
         GdpAction::Forward => |group| {
             group
-            .filter(move |packet| {
-                check_packet_certificates(gdp_name, packet, &store, None, nic_name, debug)
-            })
-            .for_each(move |packet| {
-                // Back-cache the route for 100s to allow NACK to reflect
-                store.nack_reply_cache.put(
-                    packet.src(),
-                    FwdTableEntry::new(
-                        packet.envelope().envelope().envelope().src(),
-                        SystemTime::now()
-                            .duration_since(UNIX_EPOCH)?
-                            .as_secs()
-                            + 100,
-                    ),
-                );
-                Ok(())
-            })
             .group_by(
-                move |packet| find_destination(packet, store).is_some(),
+                move |packet| {
+                    check_packet_certificates(gdp_name, packet, &store, None, nic_name, debug)
+                },
                 pipeline! {
                     true => |group| {
-                        group.filter_map(move |packet| {
-                            let ip = find_destination(&packet, store).unwrap();
-                            let mac = routes.routes.get(&packet.dst()).unwrap_or(&routes.default).mac; // FIXME - this is a hack!!!
-                            if debug {
-                                println!("{} forwarding packet to ip {} mac {}", nic_name, ip, mac);
-                            }
-                            forward_gdp(packet, Route {ip, mac})
+                        group
+                        .for_each(move |packet| {
+                            // Back-cache the route for 100s to allow NACK to reflect
+                            store.nack_reply_cache.put(
+                                packet.src(),
+                                FwdTableEntry::new(
+                                    packet.envelope().envelope().envelope().src(),
+                                    SystemTime::now()
+                                        .duration_since(UNIX_EPOCH)?
+                                        .as_secs()
+                                        + 100,
+                                ),
+                            );
+                            Ok(())
                         })
+                        .group_by(
+                            move |packet| find_destination(packet, store).is_some(),
+                            pipeline! {
+                                true => |group| {
+                                    group.filter_map(move |packet| {
+                                        let ip = find_destination(&packet, store).unwrap();
+                                        let mac = routes.routes.get(&packet.dst()).unwrap_or(&routes.default).mac; // FIXME - this is a hack!!!
+                                        if debug {
+                                            println!("{} forwarding packet to ip {} mac {}", nic_name, ip, mac);
+                                        }
+                                        forward_gdp(packet, Route {ip, mac})
+                                    })
+                                }
+                                false => |group| {
+                                    group
+                                    .map(bounce_gdp)
+                                    .inject(move |packet| {
+                                        let src_ip = packet.envelope().envelope().envelope().src();
+                                        let src_mac = packet.envelope().envelope().envelope().envelope().src();
+                                        if debug {
+                                            println!("{} querying RIB for destination {:?}", nic_name, packet.dst());
+                                        }
+                                        create_rib_request(Mbuf::new()?, &RibQuery::next_hop_for(packet.dst()), src_mac, src_ip, rib_route)
+                                    })
+                                }
+                            }
+                        )
                     }
                     false => |group| {
                         group
-                        .map(bounce_gdp)
                         .inject(move |packet| {
-                            let src_ip = packet.envelope().envelope().envelope().src();
-                            let src_mac = packet.envelope().envelope().envelope().envelope().src();
+                            let src_ip = packet.envelope().envelope().envelope().dst();
+                            let src_mac = packet.envelope().envelope().envelope().envelope().dst();
+                            let mut unknown_names = Vec::new();
+                            check_packet_certificates(gdp_name, packet, &store, Some(&mut unknown_names), nic_name, debug,);
                             if debug {
-                                println!("{} querying RIB for destination {:?}", nic_name, packet.dst());
+                                println!("{} querying RIB for metas {:?}", nic_name, packet.dst());
                             }
-                            create_rib_request(Mbuf::new()?, &RibQuery::next_hop_for(packet.dst()), src_mac, src_ip, rib_route)
+                            create_rib_request(Mbuf::new()?, &RibQuery::metas_for(&unknown_names), src_mac, src_ip, rib_route)
                         })
+                        .map(bounce_gdp)
                     }
-                })
+                }
+            )
         }
         GdpAction::RibReply => |group| {
             group.for_each(move |packet| handle_rib_reply(packet, store, debug))

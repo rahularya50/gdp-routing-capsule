@@ -176,6 +176,9 @@ pub fn dev_schedule(q: PortQueue, name: &str) -> impl Pipeline + '_ {
         delay_for(Duration::from_millis(5000)).await;
         println!("sending initial packet 2");
         send_initial_packet(q.clone(), name, src_ip, switch_route);
+        delay_for(Duration::from_millis(5000)).await;
+        println!("sending initial packet 3");
+        send_initial_packet(q.clone(), name, src_ip, switch_route);
     })
 }
 
