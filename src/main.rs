@@ -1,5 +1,4 @@
 #![feature(array_methods)]
-#![feature(destructuring_assignment)]
 
 use std::fs;
 
@@ -37,11 +36,21 @@ mod switch;
 mod workloads;
 
 arg_enum! {
+    #[derive(PartialEq)]
     enum Mode {
         Dev,
         Client,
         Router,
         Switch,
+    }
+}
+
+arg_enum! {
+    #[derive(Copy, Clone)]
+    pub enum Env {
+        Local,
+        Aws,
+        Nuc,
     }
 }
 
@@ -54,19 +63,28 @@ fn main() -> Result<()> {
     let modes = Mode::variants().map(|s| s.to_lowercase());
     let modes = &modes.each_ref().map(|mode| &(mode[..]));
 
+    let envs = Env::variants().map(|s| s.to_lowercase());
+    let envs = &envs.each_ref().map(|env| &(env[..]));
+
     let matches = clap_app!(capsule =>
         (@arg mode: -m --mode * +takes_value possible_values(&modes[..]) "The type of this node")
+        (@arg env: -e --env * +takes_value possible_values(&envs[..]) "The environment in which this node is running")
         (@arg name: -n --name * +takes_value "The GDPName of this node (used for packet filtering)")
         (@arg use_default: -d --default_routes !takes_value "For Router mode, send default response even when GDP Name is invalid")
     )
     .get_matches();
 
     let mode = value_t!(matches, "mode", Mode).unwrap_or_else(|e| e.exit());
-    let path = match mode {
-        Mode::Dev => "conf.toml",
-        Mode::Router => "ec2.toml",
-        Mode::Switch => "ec2.toml",
-        Mode::Client => "ec2.toml",
+    let env = value_t!(matches, "env", Env).unwrap_or_else(|e| e.exit());
+
+    let path = if mode == Mode::Dev {
+        "conf.toml"
+    } else {
+        match env {
+            Env::Local => "conf.toml",
+            Env::Aws => "ec2.toml",
+            Env::Nuc => "nuc.toml",
+        }
     };
 
     let content = fs::read_to_string(path)?;
@@ -79,15 +97,17 @@ fn main() -> Result<()> {
         Mode::Router => start_prod_server(
             config,
             ProdMode::Router,
+            env,
             gdp_name,
             matches.is_present("use_default"),
         ),
         Mode::Switch => start_prod_server(
             config,
             ProdMode::Switch,
+            env,
             gdp_name,
             matches.is_present("use_default"),
         ),
-        Mode::Client => start_client_server(config, gdp_name),
+        Mode::Client => start_client_server(config, gdp_name, env),
     }
 }

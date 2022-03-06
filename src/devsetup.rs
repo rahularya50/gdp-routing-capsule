@@ -17,6 +17,7 @@ use crate::ribpayload::RibQuery;
 use crate::statistics::{dump_history, make_print_stats};
 use crate::switch::switch_pipeline;
 use crate::workloads::dev_schedule;
+use crate::Env;
 
 pub fn start_dev_server(config: RuntimeConfig) -> Result<()> {
     let store1 = Store::new_shared();
@@ -24,7 +25,7 @@ pub fn start_dev_server(config: RuntimeConfig) -> Result<()> {
     let store3 = Store::new_shared();
     let store4 = Store::new_shared();
 
-    let routes: &'static Routes = Box::leak(Box::new(load_routes()?));
+    let routes: &'static Routes = Box::leak(Box::new(load_routes(Env::Local)?));
 
     let (_print_stats, history_map) = make_print_stats();
 

@@ -24,7 +24,7 @@ use crate::rib::send_rib_query;
 use crate::ribpayload::RibQuery;
 use crate::schedule::Schedule;
 use crate::statistics::make_print_stats;
-use crate::{dump_history, Route};
+use crate::{dump_history, Env, Route};
 
 const MSG: &[u8] = &[b'A'; 10000];
 
@@ -188,8 +188,8 @@ pub fn dev_schedule(q: PortQueue, name: &str) -> impl Pipeline + '_ {
     })
 }
 
-fn client_schedule(q: PortQueue, name: &str, src_ip: Ipv4Addr) -> impl Pipeline + '_ {
-    let switch_route = startup_route_lookup(2).unwrap();
+fn client_schedule(q: PortQueue, name: &str, src_ip: Ipv4Addr, env: Env) -> impl Pipeline + '_ {
+    let switch_route = startup_route_lookup(2, env).unwrap();
     Schedule::new(name, async move {
         send_initial_packet(q.clone(), name, src_ip, switch_route);
         delay_for(Duration::from_millis(1000)).await;
@@ -197,8 +197,8 @@ fn client_schedule(q: PortQueue, name: &str, src_ip: Ipv4Addr) -> impl Pipeline 
     })
 }
 
-fn flood_single(q: PortQueue, name: &str, src_ip: Ipv4Addr) -> impl Pipeline + '_ {
-    let switch_route = startup_route_lookup(2).unwrap();
+fn flood_single(q: PortQueue, name: &str, src_ip: Ipv4Addr, env: Env) -> impl Pipeline + '_ {
+    let switch_route = startup_route_lookup(2, env).unwrap();
     let test_conf = load_test_config().unwrap_or(TestConfig {
         payload_size: 800,
         random_dest_chance: 0.0,
@@ -225,12 +225,14 @@ fn flood_single(q: PortQueue, name: &str, src_ip: Ipv4Addr) -> impl Pipeline + '
     })
 }
 
-pub fn start_client_server(config: RuntimeConfig, gdp_index: u8) -> Result<()> {
+pub fn start_client_server(config: RuntimeConfig, gdp_index: u8, env: Env) -> Result<()> {
     let (print_stats, history_map) = make_print_stats();
     let src_route =
-        startup_route_lookup(gdp_index).ok_or_else(|| anyhow!("Invalid client GDPName!"))?;
+        startup_route_lookup(gdp_index, env).ok_or_else(|| anyhow!("Invalid client GDPName!"))?;
     Runtime::build(config)?
-        .add_pipeline_to_port("eth1", move |q| flood_single(q, "client", src_route.ip))?
+        .add_pipeline_to_port("eth1", move |q| {
+            flood_single(q, "client", src_route.ip, env)
+        })?
         .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
         .execute()?;
 

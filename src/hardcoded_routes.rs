@@ -10,6 +10,7 @@ use signatory::pkcs8::{FromPrivateKey, PrivateKeyInfo};
 use crate::certificates::GdpMeta;
 use crate::kvs::GdpName;
 use crate::rib::{DynamicRoutes, Route, Routes};
+use crate::Env;
 
 #[derive(Deserialize)]
 struct SerializedRoutes {
@@ -18,18 +19,22 @@ struct SerializedRoutes {
     default: Route,
 }
 
-pub fn startup_route_lookup(index: u8) -> Option<Route> {
+pub fn startup_route_lookup(index: u8, env: Env) -> Option<Route> {
     // FIXME: this is an awful hack, we shouldn't need to read the RIB to get our IP addr!
     let gdp_name = gdp_name_of_index(index);
-    load_routes()
+    load_routes(env)
         .ok()?
         .routes
         .get(&gdp_name)
         .map(|route| route.to_owned())
 }
 
-pub fn load_routes() -> Result<Routes> {
-    let content = fs::read_to_string("routes.toml")?;
+pub fn load_routes(env: Env) -> Result<Routes> {
+    let content = fs::read_to_string(match env {
+        Env::Local => "routes.toml",
+        Env::Aws => "routes.toml",
+        Env::Nuc => "nuc_routes.toml",
+    })?;
     let serialized: SerializedRoutes = toml::from_str(&content)?;
 
     Ok(Routes {
