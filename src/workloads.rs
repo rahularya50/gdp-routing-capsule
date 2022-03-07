@@ -2,13 +2,13 @@ use std::fs;
 use std::net::Ipv4Addr;
 use std::time::Duration;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result};
 use capsule::batch::{self, Batch, Pipeline};
 use capsule::config::RuntimeConfig;
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Ethernet, Packet, Udp};
-use capsule::{Mbuf, PortQueue, Runtime};
+use capsule::{Mbuf, PortQueue};
 use rand::Rng;
 use serde::Deserialize;
 use tokio_timer::delay_for;
@@ -17,14 +17,15 @@ use crate::certificates::{CertDest, Certificate, RtCert};
 use crate::dtls::{encrypt_gdp, DTls};
 use crate::gdp::{CertificateBlock, Gdp, GdpAction};
 use crate::hardcoded_routes::{
-    gdp_name_of_index, metadata_of_index, private_key_of_index, startup_route_lookup,
+    gdp_name_of_index, metadata_of_index, private_key_of_index, WithBroadcast,
 };
 use crate::kvs::GdpName;
 use crate::rib::send_rib_query;
 use crate::ribpayload::RibQuery;
+use crate::runtime::build_runtime;
 use crate::schedule::Schedule;
 use crate::statistics::make_print_stats;
-use crate::{dump_history, Env, Route};
+use crate::{dump_history, Env};
 
 const MSG: &[u8] = &[b'A'; 10000];
 
@@ -100,9 +101,8 @@ fn prep_packet(
 
 fn send_initial_packets(
     q: PortQueue,
-    _nic_name: &str,
     src_ip: Ipv4Addr,
-    switch_route: Route,
+    switch_ip: Ipv4Addr,
     num_packets: usize,
     payload_size: usize,
     random_dest_chance: f32,
@@ -124,8 +124,8 @@ fn send_initial_packets(
                 src_mac,
                 src_ip,
                 src_gdp_name,
-                switch_route.mac,
-                switch_route.ip,
+                MacAddr::broadcast(),
+                switch_ip,
                 dst_gdp_name,
                 certificates.clone(),
                 payload_size,
@@ -138,24 +138,19 @@ fn send_initial_packets(
         .run_once();
 }
 
-fn send_initial_packet(q: PortQueue, nic_name: &str, src_ip: Ipv4Addr, switch_route: Route) {
-    send_initial_packets(q, nic_name, src_ip, switch_route, 1, 800, 0.0);
+fn send_initial_packet(q: PortQueue, src_ip: Ipv4Addr, switch_ip: Ipv4Addr) {
+    send_initial_packets(q, src_ip, switch_ip, 1, 800, 0.0);
 }
 
 pub fn dev_schedule(q: PortQueue, name: &str) -> impl Pipeline + '_ {
     let src_ip = Ipv4Addr::new(10, 100, 1, 11);
     let switch_ip = Ipv4Addr::new(10, 100, 1, 12);
-    let switch_mac = MacAddr::new(0x02, 0x00, 0x00, 0xff, 0xff, 0x02);
-    let switch_route = Route {
-        ip: switch_ip,
-        mac: switch_mac,
-    };
     let meta = metadata_of_index(1);
     let private_key = private_key_of_index(1);
     send_rib_query(
         q.clone(),
         src_ip,
-        switch_route,
+        switch_ip,
         &RibQuery::announce_route(
             meta,
             RtCert::new_wrapped(
@@ -172,33 +167,41 @@ pub fn dev_schedule(q: PortQueue, name: &str) -> impl Pipeline + '_ {
     Schedule::new(name, async move {
         delay_for(Duration::from_millis(1000)).await;
         println!("sending initial packet 1");
-        send_initial_packet(q.clone(), name, src_ip, switch_route);
+        send_initial_packet(q.clone(), src_ip, switch_ip);
         delay_for(Duration::from_millis(1000)).await;
         println!("sending initial packet 2");
-        send_initial_packet(q.clone(), name, src_ip, switch_route);
+        send_initial_packet(q.clone(), src_ip, switch_ip);
         delay_for(Duration::from_millis(1000)).await;
         println!("sending initial packet 3");
-        send_initial_packet(q.clone(), name, src_ip, switch_route);
+        send_initial_packet(q.clone(), src_ip, switch_ip);
         delay_for(Duration::from_millis(1000)).await;
         println!("sending initial packet 4");
-        send_initial_packet(q.clone(), name, src_ip, switch_route);
+        send_initial_packet(q.clone(), src_ip, switch_ip);
         delay_for(Duration::from_millis(1000)).await;
         println!("sending initial packet 4");
-        send_initial_packet(q.clone(), name, src_ip, switch_route);
+        send_initial_packet(q.clone(), src_ip, switch_ip);
     })
 }
 
-fn client_schedule(q: PortQueue, name: &str, src_ip: Ipv4Addr, env: Env) -> impl Pipeline + '_ {
-    let switch_route = startup_route_lookup(2, env).unwrap();
+fn client_schedule(
+    q: PortQueue,
+    name: &str,
+    src_ip: Ipv4Addr,
+    switch_ip: Ipv4Addr,
+) -> impl Pipeline + '_ {
     Schedule::new(name, async move {
-        send_initial_packet(q.clone(), name, src_ip, switch_route);
+        send_initial_packet(q.clone(), src_ip, switch_ip);
         delay_for(Duration::from_millis(1000)).await;
-        send_initial_packet(q.clone(), name, src_ip, switch_route);
+        send_initial_packet(q.clone(), src_ip, switch_ip);
     })
 }
 
-fn flood_single(q: PortQueue, name: &str, src_ip: Ipv4Addr, env: Env) -> impl Pipeline + '_ {
-    let switch_route = startup_route_lookup(2, env).unwrap();
+fn flood_single(
+    q: PortQueue,
+    name: &str,
+    src_ip: Ipv4Addr,
+    switch_ip: Ipv4Addr,
+) -> impl Pipeline + '_ {
     let test_conf = load_test_config().unwrap_or(TestConfig {
         payload_size: 800,
         random_dest_chance: 0.0,
@@ -213,9 +216,8 @@ fn flood_single(q: PortQueue, name: &str, src_ip: Ipv4Addr, env: Env) -> impl Pi
         for _i in 0..100000 {
             send_initial_packets(
                 q.clone(),
-                name,
                 src_ip,
-                switch_route,
+                switch_ip,
                 36,
                 payload_size,
                 random_dest_chance,
@@ -225,13 +227,16 @@ fn flood_single(q: PortQueue, name: &str, src_ip: Ipv4Addr, env: Env) -> impl Pi
     })
 }
 
-pub fn start_client_server(config: RuntimeConfig, gdp_index: u8, env: Env) -> Result<()> {
+pub fn start_client_server(
+    config: RuntimeConfig,
+    node_addr: Ipv4Addr,
+    switch_addr: Ipv4Addr,
+    env: Env,
+) -> Result<()> {
     let (print_stats, history_map) = make_print_stats();
-    let src_route =
-        startup_route_lookup(gdp_index, env).ok_or_else(|| anyhow!("Invalid client GDPName!"))?;
     build_runtime(config, env)?
         .add_pipeline_to_port("eth1", move |q| {
-            flood_single(q, "client", src_route.ip, env)
+            flood_single(q, "client", node_addr, switch_addr)
         })?
         .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
         .execute()?;

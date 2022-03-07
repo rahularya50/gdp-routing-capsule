@@ -1,18 +1,19 @@
+use std::net::Ipv4Addr;
 use std::time::Duration;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result};
 use capsule::config::RuntimeConfig;
-use capsule::Runtime;
 
 use crate::certificates::{CertDest, GdpMeta, RtCert};
 use crate::gdp_pipeline::install_gdp_pipeline;
 use crate::hardcoded_routes::{
-    gdp_name_of_index, load_routes, metadata_of_index, private_key_of_index, startup_route_lookup,
+    gdp_name_of_index, load_routes, metadata_of_index, private_key_of_index,
 };
 use crate::kvs::{GdpName, Store};
 use crate::pipeline::GdpPipeline;
 use crate::rib::{rib_pipeline, send_rib_query, Routes};
 use crate::ribpayload::RibQuery;
+use crate::runtime::build_runtime;
 use crate::statistics::{dump_history, make_print_stats};
 use crate::switch::switch_pipeline;
 use crate::Env;
@@ -27,6 +28,7 @@ pub fn start_prod_server(
     mode: ProdMode,
     env: Env,
     gdp_index: u8,
+    node_addr: Ipv4Addr,
     use_default: bool,
 ) -> Result<()> {
     fn create_rib(
@@ -54,8 +56,7 @@ pub fn start_prod_server(
             private_key,
             store,
             "switch",
-            routes,
-            routes.rib,
+            routes.rib.ip,
             false,
         )
     }
@@ -63,6 +64,7 @@ pub fn start_prod_server(
     fn start<T: GdpPipeline + 'static>(
         config: RuntimeConfig,
         gdp_index: u8,
+        node_addr: Ipv4Addr,
         env: Env,
         use_default: bool,
         pipeline: fn(GdpName, GdpMeta, [u8; 32], Store, &'static Routes, bool) -> T,
@@ -70,22 +72,20 @@ pub fn start_prod_server(
         let gdp_name = gdp_name_of_index(gdp_index);
         let meta = metadata_of_index(gdp_index);
         let private_key = private_key_of_index(gdp_index);
-        let node_addr =
-            startup_route_lookup(gdp_index, env).ok_or_else(|| anyhow!("Unknown gdp index!"))?;
 
         let store = Store::new_shared();
-        let (print_stats, history_map) = make_print_stats();
+        let (_print_stats, history_map) = make_print_stats();
         let routes: &'static Routes = Box::leak(Box::new(load_routes(env)?));
 
-        let cert = RtCert::new_wrapped(meta, private_key, CertDest::IpAddr(node_addr.ip), true)?;
+        let cert = RtCert::new_wrapped(meta, private_key, CertDest::IpAddr(node_addr), true)?;
 
         build_runtime(config, env)?
             .add_pipeline_to_port("eth1", move |q| {
                 let store = store.sync();
                 send_rib_query(
                     q.clone(),
-                    node_addr.ip,
-                    routes.rib,
+                    node_addr,
+                    routes.rib.ip,
                     &RibQuery::announce_route(meta, cert.clone()),
                     "prod",
                 );
@@ -109,7 +109,14 @@ pub fn start_prod_server(
     }
 
     match mode {
-        ProdMode::Router => start(config, gdp_index, env, use_default, create_rib),
-        ProdMode::Switch => start(config, gdp_index, env, use_default, create_switch),
+        ProdMode::Router => start(config, gdp_index, node_addr, env, use_default, create_rib),
+        ProdMode::Switch => start(
+            config,
+            gdp_index,
+            node_addr,
+            env,
+            use_default,
+            create_switch,
+        ),
     }
 }

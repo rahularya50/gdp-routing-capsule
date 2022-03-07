@@ -1,6 +1,7 @@
 #![feature(array_methods)]
 
 use std::fs;
+use std::net::Ipv4Addr;
 
 use anyhow::Result;
 use capsule::packets::ip::v4::Ipv4;
@@ -13,7 +14,7 @@ use crate::dtls::DTls;
 use crate::kvs::FwdTableEntry;
 use crate::pipeline::GdpPipeline;
 use crate::prodsetup::{start_prod_server, ProdMode};
-use crate::rib::Route;
+
 use crate::statistics::dump_history;
 use crate::workloads::start_client_server;
 
@@ -70,8 +71,10 @@ fn main() -> Result<()> {
     let matches = clap_app!(capsule =>
         (@arg mode: -m --mode * +takes_value possible_values(&modes[..]) "The type of this node")
         (@arg env: -e --env * +takes_value possible_values(&envs[..]) "The environment in which this node is running")
-        (@arg name: -n --name * +takes_value "The GDPName of this node (used for packet filtering)")
-        (@arg use_default: -d --default_routes !takes_value "For Router mode, send default response even when GDP Name is invalid")
+        (@arg name: -n --name +takes_value "The GDPName of this node (used for packet filtering)")
+        (@arg ip: --ip +takes_value "The IP address of this node")
+        (@arg switch_ip: -s --switch-ip +takes_value "The IP address of the local switch")
+        (@arg use_default: -d --default-routes !takes_value "For Router mode, send default response even when GDP Name is invalid")
     )
     .get_matches();
 
@@ -91,7 +94,9 @@ fn main() -> Result<()> {
     let content = fs::read_to_string(path)?;
     let config = toml::from_str(&content)?;
 
-    let gdp_name = value_t!(matches, "name", u8)?;
+    let gdp_name = value_t!(matches, "name", u8);
+    let ip_addr = value_t!(matches, "ip", Ipv4Addr);
+    let switch_addr = value_t!(matches, "switch-ip", Ipv4Addr);
 
     match mode {
         Mode::Dev => start_dev_server(config),
@@ -99,16 +104,18 @@ fn main() -> Result<()> {
             config,
             ProdMode::Router,
             env,
-            gdp_name,
+            gdp_name?,
+            ip_addr?,
             matches.is_present("use_default"),
         ),
         Mode::Switch => start_prod_server(
             config,
             ProdMode::Switch,
             env,
-            gdp_name,
+            gdp_name?,
+            ip_addr?,
             matches.is_present("use_default"),
         ),
-        Mode::Client => start_client_server(config, gdp_name, env),
+        Mode::Client => start_client_server(config, ip_addr?, switch_addr?, env),
     }
 }

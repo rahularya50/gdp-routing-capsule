@@ -13,6 +13,7 @@ use serde::Deserialize;
 use crate::certificates::{Certificate, GdpMeta};
 use crate::dtls::{encrypt_gdp, DTls};
 use crate::gdp::{Gdp, GdpAction};
+use crate::hardcoded_routes::WithBroadcast;
 use crate::kvs::{GdpName, Store};
 use crate::ribpayload::{generate_rib_response, process_rib_response, RibQuery, RibResponse};
 use crate::{pipeline, GdpPipeline};
@@ -45,7 +46,6 @@ impl DynamicRoutes {
 #[derive(Clone, Copy, Deserialize)]
 pub struct Route {
     pub ip: Ipv4Addr,
-    pub mac: MacAddr,
 }
 
 pub fn create_rib_request(
@@ -53,15 +53,15 @@ pub fn create_rib_request(
     query: &RibQuery,
     src_mac: MacAddr,
     src_ip: Ipv4Addr,
-    dst_route: Route,
+    dst_ip: Ipv4Addr,
 ) -> Result<Gdp<Ipv4>> {
     let mut message = message.push::<Ethernet>()?;
     message.set_src(src_mac);
-    message.set_dst(dst_route.mac);
+    message.set_dst(MacAddr::broadcast());
 
     let mut message = message.push::<Ipv4>()?;
     message.set_src(src_ip);
-    message.set_dst(dst_route.ip);
+    message.set_dst(dst_ip);
 
     let mut message = message.push::<Udp<Ipv4>>()?;
     message.set_src_port(RIB_PORT);
@@ -87,14 +87,14 @@ pub fn create_rib_request(
 pub fn send_rib_query(
     q: PortQueue,
     src_ip: Ipv4Addr,
-    dst_route: Route,
+    dst_ip: Ipv4Addr,
     query: &RibQuery,
     nic_name: &str,
 ) {
     let src_mac = q.mac_addr();
     println!("Sending initial RIB announcement from {}", nic_name);
     batch::poll_fn(|| Mbuf::alloc_bulk(1).unwrap())
-        .map(move |packet| create_rib_request(packet, query, src_mac, src_ip, dst_route))
+        .map(move |packet| create_rib_request(packet, query, src_mac, src_ip, dst_ip))
         .map(|packet| Ok(packet.deparse()))
         .map(encrypt_gdp)
         .send(q)

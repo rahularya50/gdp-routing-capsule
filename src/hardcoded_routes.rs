@@ -3,6 +3,7 @@ use std::fs;
 use std::sync::RwLock;
 
 use anyhow::Result;
+use capsule::net::MacAddr;
 use serde::Deserialize;
 use signatory::ed25519::{SigningKey, VerifyingKey, ALGORITHM_ID};
 use signatory::pkcs8::{FromPrivateKey, PrivateKeyInfo};
@@ -19,14 +20,14 @@ struct SerializedRoutes {
     default: Route,
 }
 
-pub fn startup_route_lookup(index: u8, env: Env) -> Option<Route> {
-    // FIXME: this is an awful hack, we shouldn't need to read the RIB to get our IP addr!
-    let gdp_name = gdp_name_of_index(index);
-    load_routes(env)
-        .ok()?
-        .routes
-        .get(&gdp_name)
-        .map(|route| route.to_owned())
+pub trait WithBroadcast<T> {
+    fn broadcast() -> T;
+}
+
+impl WithBroadcast<MacAddr> for MacAddr {
+    fn broadcast() -> MacAddr {
+        MacAddr::new(0xff, 0xff, 0xff, 0xff, 0xff, 0xff)
+    }
 }
 
 pub fn load_routes(env: Env) -> Result<Routes> {

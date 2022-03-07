@@ -3,8 +3,6 @@ use std::time::Duration;
 
 use anyhow::Result;
 use capsule::config::RuntimeConfig;
-use capsule::net::MacAddr;
-use capsule::Runtime;
 
 use crate::certificates::{CertDest, RtCert};
 use crate::gdp_pipeline::install_gdp_pipeline;
@@ -12,7 +10,7 @@ use crate::hardcoded_routes::{
     gdp_name_of_index, load_routes, metadata_of_index, private_key_of_index,
 };
 use crate::kvs::Store;
-use crate::rib::{rib_pipeline, send_rib_query, Route, Routes};
+use crate::rib::{rib_pipeline, send_rib_query, Routes};
 use crate::ribpayload::RibQuery;
 use crate::runtime::build_runtime;
 use crate::statistics::{dump_history, make_print_stats};
@@ -30,10 +28,7 @@ pub fn start_dev_server(config: RuntimeConfig) -> Result<()> {
 
     let (_print_stats, history_map) = make_print_stats();
 
-    let rib_route = Route {
-        ip: Ipv4Addr::new(10, 100, 1, 10),
-        mac: MacAddr::new(0x02, 0x00, 0x00, 0xFF, 0xFF, 0x00),
-    };
+    let rib_ip = Ipv4Addr::new(10, 100, 1, 10);
 
     const DEBUG: bool = true;
 
@@ -41,15 +36,12 @@ pub fn start_dev_server(config: RuntimeConfig) -> Result<()> {
         // GDP index = 4
         .add_pipeline_to_port("eth1", move |q| {
             let name = "rib";
-            let route = Route {
-                ip: Ipv4Addr::new(10, 100, 1, 10),
-                mac: MacAddr::new(0x02, 0x00, 0x00, 0xff, 0xff, 0x00),
-            };
+            let node_addr = Ipv4Addr::new(10, 100, 1, 10);
             install_gdp_pipeline(
                 q,
                 rib_pipeline(name, routes, false, DEBUG),
                 name,
-                route,
+                node_addr,
                 DEBUG,
             )
         })?
@@ -61,17 +53,14 @@ pub fn start_dev_server(config: RuntimeConfig) -> Result<()> {
             let store3_local = store3.sync();
             let meta = metadata_of_index(2);
             let private_key = private_key_of_index(2);
-            let node_route = Route {
-                ip: Ipv4Addr::new(10, 100, 1, 12),
-                mac: MacAddr::new(0x02, 0x00, 0x00, 0xff, 0xff, 0x02),
-            };
+            let node_addr = Ipv4Addr::new(10, 100, 1, 12);
             send_rib_query(
                 q.clone(),
-                node_route.ip,
-                rib_route,
+                node_addr,
+                rib_ip,
                 &RibQuery::announce_route(
                     meta,
-                    RtCert::new_wrapped(meta, private_key, CertDest::IpAddr(node_route.ip), true)
+                    RtCert::new_wrapped(meta, private_key, CertDest::IpAddr(node_addr), true)
                         .unwrap(),
                 ),
                 name,
@@ -84,12 +73,11 @@ pub fn start_dev_server(config: RuntimeConfig) -> Result<()> {
                     private_key,
                     store3_local,
                     name,
-                    routes,
-                    rib_route,
+                    rib_ip,
                     DEBUG,
                 ),
                 name,
-                node_route,
+                node_addr,
                 DEBUG,
             )
         })?
@@ -99,17 +87,14 @@ pub fn start_dev_server(config: RuntimeConfig) -> Result<()> {
             let store4_local = store4.sync();
             let meta = metadata_of_index(3);
             let private_key = private_key_of_index(3);
-            let node_route = Route {
-                ip: Ipv4Addr::new(10, 100, 1, 13),
-                mac: MacAddr::new(0x02, 0x00, 0x00, 0xff, 0xff, 0x03),
-            };
+            let node_addr = Ipv4Addr::new(10, 100, 1, 13);
             send_rib_query(
                 q.clone(),
-                node_route.ip,
-                rib_route,
+                node_addr,
+                rib_ip,
                 &RibQuery::announce_route(
                     meta,
-                    RtCert::new_wrapped(meta, private_key, CertDest::IpAddr(node_route.ip), true)
+                    RtCert::new_wrapped(meta, private_key, CertDest::IpAddr(node_addr), true)
                         .unwrap(),
                 ),
                 name,
@@ -122,12 +107,11 @@ pub fn start_dev_server(config: RuntimeConfig) -> Result<()> {
                     private_key,
                     store4_local,
                     name,
-                    routes,
-                    rib_route,
+                    rib_ip,
                     DEBUG,
                 ),
                 name,
-                node_route,
+                node_addr,
                 DEBUG,
             )
         })?

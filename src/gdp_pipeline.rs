@@ -1,3 +1,5 @@
+use std::net::Ipv4Addr;
+
 use capsule::batch::{Batch, Disposition, Either, Pipeline, Poll};
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Ethernet, Packet, Udp};
@@ -6,20 +8,18 @@ use capsule::PortQueue;
 use crate::dtls::{decrypt_gdp, encrypt_gdp, DTls};
 use crate::gdp::{Gdp, GdpAction};
 use crate::pipeline::GdpPipeline;
-use crate::rib::Route;
+
 
 pub fn install_gdp_pipeline(
     q: PortQueue,
     gdp_pipeline: impl GdpPipeline,
     nic_name: &'_ str,
-    node_addr: Route,
+    node_addr: Ipv4Addr,
     debug: bool,
 ) -> impl Pipeline + '_ {
     Poll::new(q.clone())
         .map(|packet| packet.parse::<Ethernet>()?.parse::<Ipv4>())
-        .filter(move |packet| {
-            packet.dst() == node_addr.ip && packet.envelope().dst() == node_addr.mac
-        })
+        .filter(move |packet| packet.dst() == node_addr)
         .map(|packet| packet.parse::<Udp<Ipv4>>()?.parse::<DTls<Ipv4>>())
         .map(decrypt_gdp)
         .map(|packet| packet.parse::<Gdp<Ipv4>>())

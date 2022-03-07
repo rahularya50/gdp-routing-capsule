@@ -3,6 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use capsule::batch::{Batch, Either};
+use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Packet, Udp};
 use capsule::Mbuf;
@@ -10,11 +11,12 @@ use capsule::Mbuf;
 use crate::certificates::{check_packet_certificates, CertDest, GdpMeta, RtCert};
 use crate::gdp::{CertificateBlock, Gdp, GdpAction};
 use crate::gdpbatch::GdpBatch;
+use crate::hardcoded_routes::WithBroadcast;
 use crate::kvs::{GdpName, Store};
 use crate::pipeline::GdpPipeline;
-use crate::rib::{create_rib_request, handle_rib_reply, Routes};
+use crate::rib::{create_rib_request, handle_rib_reply};
 use crate::ribpayload::RibQuery;
-use crate::{pipeline, FwdTableEntry, Route};
+use crate::{pipeline, FwdTableEntry};
 
 fn find_destination(gdp: &Gdp<Ipv4>, store: Store) -> Option<Ipv4Addr> {
     store.forwarding_table.get(&gdp.dst()).map(|x| x.ip)
@@ -61,23 +63,23 @@ fn add_forwarding_cert(
     Ok(gdp)
 }
 
-fn forward_gdp(mut gdp: Gdp<Ipv4>, dst: Route) -> Result<Either<Gdp<Ipv4>>> {
+fn forward_gdp(mut gdp: Gdp<Ipv4>, dst: Ipv4Addr) -> Result<Either<Gdp<Ipv4>>> {
     let dtls = gdp.envelope_mut();
     let udp = dtls.envelope_mut();
     let ipv4 = udp.envelope_mut();
 
-    if ipv4.dst() == dst.ip {
+    if ipv4.dst() == dst {
         // we are the destination!
         println!("packet received!");
         return Ok(Either::Drop(gdp.reset()));
     }
 
     ipv4.set_src(ipv4.dst());
-    ipv4.set_dst(dst.ip);
+    ipv4.set_dst(dst);
 
     let ethernet = ipv4.envelope_mut();
     ethernet.set_src(ethernet.dst());
-    ethernet.set_dst(dst.mac);
+    ethernet.set_dst(MacAddr::broadcast());
     Ok(Either::Keep(gdp))
 }
 
@@ -98,8 +100,7 @@ pub fn switch_pipeline(
     private_key: [u8; 32],
     store: Store,
     nic_name: &'static str,
-    routes: &'static Routes,
-    rib_route: Route,
+    rib_ip: Ipv4Addr,
     debug: bool,
 ) -> impl GdpPipeline {
     pipeline! {
@@ -132,12 +133,11 @@ pub fn switch_pipeline(
                                 true => |group| {
                                     group.filter_map(move |packet| {
                                         let ip = find_destination(&packet, store).unwrap();
-                                        let mac = routes.routes.get(&packet.dst()).unwrap_or(&routes.default).mac; // FIXME - this is a hack!!!
                                         if debug {
-                                            println!("{} forwarding packet to ip {} mac {}", nic_name, ip, mac);
+                                            println!("{} forwarding packet to ip {}", nic_name, ip);
                                         }
                                         let packet = add_forwarding_cert(packet, store, meta, private_key)?;
-                                        forward_gdp(packet, Route {ip, mac})
+                                        forward_gdp(packet, ip)
                                     })
                                 }
                                 false => |group| {
@@ -149,7 +149,7 @@ pub fn switch_pipeline(
                                         if debug {
                                             println!("{} querying RIB for destination {:?}", nic_name, packet.dst());
                                         }
-                                        create_rib_request(Mbuf::new()?, &RibQuery::next_hop_for(packet.dst()), src_mac, src_ip, rib_route)
+                                        create_rib_request(Mbuf::new()?, &RibQuery::next_hop_for(packet.dst()), src_mac, src_ip, rib_ip)
                                     })
                                 }
                             }
@@ -165,7 +165,7 @@ pub fn switch_pipeline(
                             if debug {
                                 println!("{} querying RIB for metas {:?}", nic_name, packet.dst());
                             }
-                            create_rib_request(Mbuf::new()?, &RibQuery::metas_for(&unknown_names), src_mac, src_ip, rib_route)
+                            create_rib_request(Mbuf::new()?, &RibQuery::metas_for(&unknown_names), src_mac, src_ip, rib_ip)
                         })
                         .map(bounce_gdp)
                     }
@@ -179,15 +179,14 @@ pub fn switch_pipeline(
         GdpAction::Nack => |group| {
             group.filter_map(move |packet| {
                 let route = store.nack_reply_cache.get(&packet.src());
-                let mac = routes.routes.get(&packet.dst()).unwrap_or(&routes.default).mac; // FIXME - this is a hack!!!
                 match route {
-                    Some(FwdTableEntry { ip, .. }) => forward_gdp(packet, Route { ip, mac }),
+                    Some(FwdTableEntry { ip, .. }) => forward_gdp(packet, ip),
                     None => Ok(Either::Drop(packet.reset())),
                 }
             })
         }
         GdpAction::RibGet => |group| {
-            group.filter_map(move |packet| forward_gdp(packet, rib_route))
+            group.filter_map(move |packet| forward_gdp(packet, rib_ip))
         }
         _ => |group| {group.filter(|_| false)}
     }
