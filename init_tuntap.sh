@@ -2,7 +2,7 @@
 set -euxo pipefail
 
 # delete the ingress queue
-tc qdisc del dev eno1 ingress
+tc qdisc del dev eno1 ingress || true
 
 # (re)create an ingress queue
 tc qdisc add dev eno1 handle ffff: ingress
@@ -14,7 +14,7 @@ tc filter del dev eno1 parent ffff:
 tc filter add dev eno1 parent ffff: protocol ip u32 match ip dport 31415 0xffff action mirred egress mirror dev mytap
 
 # delete the TAP ingress queue
-tc qdisc del dev mytap ingress
+tc qdisc del dev mytap ingress || true
 
 # recreate the TAP ingress queue
 tc qdisc add dev mytap handle ffff: ingress
