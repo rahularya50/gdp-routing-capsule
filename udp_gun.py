@@ -2,7 +2,7 @@ import socket
 
 SOURCE_PORT = 27182
 
-TARGET_IP = "128.32.37.46"
+TARGET_IP = "128.32.37.41"
 TARGET_PORT = 31415
 DEFAULT_PAYLOAD = b"Not hello"
 
