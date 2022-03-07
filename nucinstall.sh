@@ -4,6 +4,7 @@ set -euxo pipefail
 cd /home/$(logname)
 
 git clone https://github.com/rahularya50/gdp-routing-capsule.git rustgdp
+chmod -R 777 rustgdp
 systemctl start docker
 
 echo "vm.nr_hugepages = 2048" >> /etc/sysctl.conf
@@ -11,7 +12,6 @@ sysctl -e -p
 
 echo 1024 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
 
-newgrp docker
 usermod -aG docker $(logname)
 
 systemctl restart docker
