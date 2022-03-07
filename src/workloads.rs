@@ -229,7 +229,7 @@ pub fn start_client_server(config: RuntimeConfig, gdp_index: u8, env: Env) -> Re
     let (print_stats, history_map) = make_print_stats();
     let src_route =
         startup_route_lookup(gdp_index, env).ok_or_else(|| anyhow!("Invalid client GDPName!"))?;
-    Runtime::build(config)?
+    build_runtime(config, env)?
         .add_pipeline_to_port("eth1", move |q| {
             flood_single(q, "client", src_route.ip, env)
         })?

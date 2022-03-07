@@ -79,7 +79,7 @@ pub fn start_prod_server(
 
         let cert = RtCert::new_wrapped(meta, private_key, CertDest::IpAddr(node_addr.ip), true)?;
 
-        Runtime::build(config)?
+        build_runtime(config, env)?
             .add_pipeline_to_port("eth1", move |q| {
                 let store = store.sync();
                 send_rib_query(

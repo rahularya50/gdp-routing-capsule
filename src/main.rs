@@ -34,6 +34,7 @@ mod schedule;
 mod statistics;
 mod switch;
 mod workloads;
+mod runtime;
 
 arg_enum! {
     #[derive(PartialEq)]

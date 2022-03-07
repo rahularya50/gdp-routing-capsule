@@ -14,6 +14,7 @@ use crate::hardcoded_routes::{
 use crate::kvs::Store;
 use crate::rib::{rib_pipeline, send_rib_query, Route, Routes};
 use crate::ribpayload::RibQuery;
+use crate::runtime::build_runtime;
 use crate::statistics::{dump_history, make_print_stats};
 use crate::switch::switch_pipeline;
 use crate::workloads::dev_schedule;
@@ -36,7 +37,7 @@ pub fn start_dev_server(config: RuntimeConfig) -> Result<()> {
 
     const DEBUG: bool = true;
 
-    Runtime::build(config)?
+    build_runtime(config, Env::Local)?
         // GDP index = 4
         .add_pipeline_to_port("eth1", move |q| {
             let name = "rib";
