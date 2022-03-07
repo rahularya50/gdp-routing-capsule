@@ -30,11 +30,11 @@ mod pipeline;
 mod prodsetup;
 mod rib;
 mod ribpayload;
+mod runtime;
 mod schedule;
 mod statistics;
 mod switch;
 mod workloads;
-mod runtime;
 
 arg_enum! {
     #[derive(PartialEq)]
@@ -47,7 +47,7 @@ arg_enum! {
 }
 
 arg_enum! {
-    #[derive(Copy, Clone)]
+    #[derive(PartialEq, Copy, Clone)]
     pub enum Env {
         Local,
         Aws,
