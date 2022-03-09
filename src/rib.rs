@@ -18,7 +18,7 @@ use crate::kvs::{GdpName, Store};
 use crate::ribpayload::{generate_rib_response, process_rib_response, RibQuery, RibResponse};
 use crate::{pipeline, GdpPipeline};
 
-const RIB_PORT: u16 = 27182;
+const RIB_PORT: u16 = 31415;
 
 pub struct Routes {
     pub rib: Route,

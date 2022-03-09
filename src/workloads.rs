@@ -2,7 +2,7 @@ use std::fs;
 use std::net::Ipv4Addr;
 use std::time::Duration;
 
-use anyhow::{Result};
+use anyhow::Result;
 use capsule::batch::{self, Batch, Pipeline};
 use capsule::config::RuntimeConfig;
 use capsule::net::MacAddr;
@@ -65,8 +65,10 @@ fn prep_packet(
     let mut reply = reply.push::<Udp<Ipv4>>()?;
     let mut rng = rand::thread_rng();
     // randomize port to hash into different queues
-    reply.set_src_port(rng.gen());
-    reply.set_dst_port(rng.gen());
+    // reply.set_src_port(rng.gen());
+    // reply.set_dst_port(rng.gen());
+    reply.set_src_port(31415);
+    reply.set_dst_port(31415);
 
     let reply = reply.push::<DTls<Ipv4>>()?;
 
