@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs;
 use std::sync::RwLock;
 
@@ -15,7 +14,6 @@ use crate::Env;
 
 #[derive(Deserialize)]
 struct SerializedRoutes {
-    routes: HashMap<String, Route>,
     rib: Route,
     default: Route,
 }
@@ -39,15 +37,6 @@ pub fn load_routes(env: Env) -> Result<Routes> {
     let serialized: SerializedRoutes = toml::from_str(&content)?;
 
     Ok(Routes {
-        routes: serialized
-            .routes
-            .iter()
-            .map(|it| -> (GdpName, Route) {
-                let index = it.0.parse::<u8>().unwrap();
-                let route = it.1.to_owned();
-                (gdp_name_of_index(index), route)
-            })
-            .collect(),
         rib: serialized.rib,
         default: serialized.default,
         dynamic_routes: RwLock::new(DynamicRoutes::new()),

@@ -21,7 +21,6 @@ use crate::{pipeline, GdpPipeline};
 const RIB_PORT: u16 = 27182;
 
 pub struct Routes {
-    pub routes: HashMap<GdpName, Route>,
     pub rib: Route,
     pub default: Route,
     pub dynamic_routes: RwLock<DynamicRoutes>,

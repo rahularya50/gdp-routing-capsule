@@ -1,20 +1,3 @@
-[routes.1]
-ip = "172.31.0.218"
-mac = "06:ed:a1:22:44:37"
-
-[routes.2]
-ip = "172.31.8.154"
-mac = "06:1d:e9:c1:3f:fd"
-
-[routes.3]
-ip = "172.31.14.201"
-mac = "06:4b:03:8b:83:3b"
-# mac = "02:00:00:ff:ff:03" # UNCOMMENT ME FOR --dev mode
-
-[routes.4]
-ip = "172.31.5.156"
-mac = "06:52:48:41:d2:d9"
-
 [default]
 ip = "172.31.14.201"
 mac = "06:4b:03:8b:83:3b"
