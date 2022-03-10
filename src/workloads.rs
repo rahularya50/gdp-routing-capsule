@@ -191,24 +191,6 @@ fn client_schedule(
     src_ip: Ipv4Addr,
     switch_ip: Ipv4Addr,
 ) -> impl Pipeline + '_ {
-    let meta = metadata_of_index(1);
-    let private_key = private_key_of_index(1);
-    send_rib_query(
-        q.clone(),
-        src_ip,
-        switch_ip,
-        &RibQuery::announce_route(
-            meta,
-            RtCert::new_wrapped(
-                meta,
-                private_key,
-                CertDest::GdpName(gdp_name_of_index(2)),
-                true,
-            )
-            .unwrap(),
-        ),
-        "client",
-    );
     Schedule::new(name, async move {
         delay_for(Duration::from_millis(1000)).await;
         println!("sending initial packet 1");
@@ -266,8 +248,27 @@ pub fn start_client_server(
     env: Env,
 ) -> Result<()> {
     let (print_stats, history_map) = make_print_stats();
+
     build_runtime(config, env)?
         .add_pipeline_to_port("eth1", move |q| {
+            let meta = metadata_of_index(1);
+            let private_key = private_key_of_index(1);
+            send_rib_query(
+                q.clone(),
+                node_addr,
+                switch_addr,
+                &RibQuery::announce_route(
+                    meta,
+                    RtCert::new_wrapped(
+                        meta,
+                        private_key,
+                        CertDest::GdpName(gdp_name_of_index(2)),
+                        true,
+                    )
+                    .unwrap(),
+                ),
+                "client",
+            );
             client_schedule(q, "client", node_addr, switch_addr)
             // flood_single(q, "client", node_addr, switch_addr)
         })?
