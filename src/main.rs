@@ -73,7 +73,7 @@ fn main() -> Result<()> {
         (@arg env: -e --env * +takes_value possible_values(&envs[..]) "The environment in which this node is running")
         (@arg name: -n --name +takes_value "The GDPName of this node (used for packet filtering)")
         (@arg ip: --ip +takes_value "The IP address of this node")
-        (@arg switch_ip: -s --switch-ip +takes_value "The IP address of the local switch")
+        (@arg switch: -s --switch +takes_value "The IP address of the local switch")
         (@arg use_default: -d --default-routes !takes_value "For Router mode, send default response even when GDP Name is invalid")
     )
     .get_matches();
@@ -96,7 +96,7 @@ fn main() -> Result<()> {
 
     let gdp_name = value_t!(matches, "name", u8);
     let ip_addr = value_t!(matches, "ip", Ipv4Addr);
-    let switch_addr = value_t!(matches, "switch-ip", Ipv4Addr);
+    let switch_addr = value_t!(matches, "switch", Ipv4Addr);
 
     match mode {
         Mode::Dev => start_dev_server(config),
