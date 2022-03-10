@@ -191,9 +191,39 @@ fn client_schedule(
     src_ip: Ipv4Addr,
     switch_ip: Ipv4Addr,
 ) -> impl Pipeline + '_ {
+    let meta = metadata_of_index(1);
+    let private_key = private_key_of_index(1);
+    send_rib_query(
+        q.clone(),
+        src_ip,
+        switch_ip,
+        &RibQuery::announce_route(
+            meta,
+            RtCert::new_wrapped(
+                meta,
+                private_key,
+                CertDest::GdpName(gdp_name_of_index(2)),
+                true,
+            )
+            .unwrap(),
+        ),
+        "client",
+    );
     Schedule::new(name, async move {
+        delay_for(Duration::from_millis(1000)).await;
+        println!("sending initial packet 1");
         send_initial_packet(q.clone(), src_ip, switch_ip);
         delay_for(Duration::from_millis(1000)).await;
+        println!("sending initial packet 2");
+        send_initial_packet(q.clone(), src_ip, switch_ip);
+        delay_for(Duration::from_millis(1000)).await;
+        println!("sending initial packet 3");
+        send_initial_packet(q.clone(), src_ip, switch_ip);
+        delay_for(Duration::from_millis(1000)).await;
+        println!("sending initial packet 4");
+        send_initial_packet(q.clone(), src_ip, switch_ip);
+        delay_for(Duration::from_millis(1000)).await;
+        println!("sending initial packet 4");
         send_initial_packet(q.clone(), src_ip, switch_ip);
     })
 }
@@ -238,7 +268,8 @@ pub fn start_client_server(
     let (print_stats, history_map) = make_print_stats();
     build_runtime(config, env)?
         .add_pipeline_to_port("eth1", move |q| {
-            flood_single(q, "client", node_addr, switch_addr)
+            client_schedule(q, "client", node_addr, switch_addr)
+            // flood_single(q, "client", node_addr, switch_addr)
         })?
         .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?
         .execute()?;
