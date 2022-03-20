@@ -1,9 +1,9 @@
 [package]
-name = "ping4d"
+name = "gdp-rs"
 version = "0.1.0"
-authors = ["Capsule Developers <capsule-dev@googlegroups.com>"]
+authors = ["Rahul Arya"]
 license = "Apache-2.0"
-edition = "2018"
+edition = "2021"
 publish = false
 readme = "README.md"
 description = """
