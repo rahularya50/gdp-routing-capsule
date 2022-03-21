@@ -3,7 +3,7 @@ use std::net::Ipv4Addr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
-use capsule::packets::ip::v4::Ipv4;
+use capsule::packets::Packet;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use signatory::ed25519::{Signature, SigningKey, VerifyingKey, ALGORITHM_ID};
@@ -125,9 +125,9 @@ pub enum CertDest {
     IpAddr(Ipv4Addr),
 }
 
-pub fn check_packet_certificates(
+pub fn check_packet_certificates<T: Packet>(
     gdp_name: GdpName,
-    packet: &Gdp<Ipv4>,
+    packet: &Gdp<T>,
     store: &Store,
     mut needed_metas: Option<&mut Vec<GdpName>>,
     nic_name: &str,

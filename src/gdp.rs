@@ -53,13 +53,13 @@ impl TryFrom<u8> for GdpAction {
     }
 }
 
-pub struct Gdp<T: IpPacket> {
-    envelope: DTls<T>,
+pub struct Gdp<T: Packet> {
+    envelope: T,
     header: NonNull<GdpHeader>,
     offset: usize,
 }
 
-impl<T: IpPacket> Gdp<T> {
+impl<T: Packet> Gdp<T> {
     #[inline]
     fn header(&self) -> &GdpHeader {
         unsafe { self.header.as_ref() }
@@ -153,7 +153,7 @@ impl<T: IpPacket> Gdp<T> {
     }
 }
 
-impl fmt::Debug for Gdp<Ipv4> {
+impl fmt::Debug for Gdp<DTls<Ipv4>> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let ipv4 = self.envelope().envelope().envelope();
         let ethernet = ipv4.envelope();
@@ -169,8 +169,8 @@ impl fmt::Debug for Gdp<Ipv4> {
     }
 }
 
-impl<T: IpPacket> Packet for Gdp<T> {
-    type Envelope = DTls<T>;
+impl<T: Packet> Packet for Gdp<T> {
+    type Envelope = T;
 
     #[inline]
     fn envelope(&self) -> &Self::Envelope {

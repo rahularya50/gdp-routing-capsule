@@ -6,6 +6,7 @@ use std::net::Ipv4Addr;
 use anyhow::Result;
 use capsule::packets::ip::v4::Ipv4;
 use clap::{arg_enum, clap_app, value_t};
+use sidecar::start_sidecar_listener;
 use tracing::Level;
 use tracing_subscriber::fmt;
 
@@ -13,8 +14,7 @@ use crate::devsetup::start_dev_server;
 use crate::dtls::DTls;
 use crate::kvs::FwdTableEntry;
 use crate::pipeline::GdpPipeline;
-use crate::prodsetup::{start_prod_server, ProdMode};
-
+use crate::prodsetup::{start_rib_server, start_switch_server};
 use crate::statistics::dump_history;
 use crate::workloads::start_client_server;
 
@@ -33,6 +33,7 @@ mod rib;
 mod ribpayload;
 mod runtime;
 mod schedule;
+mod sidecar;
 mod statistics;
 mod switch;
 mod workloads;
@@ -42,6 +43,7 @@ arg_enum! {
     enum Mode {
         Dev,
         Client,
+        Sidecar,
         Router,
         Switch,
     }
@@ -98,24 +100,15 @@ fn main() -> Result<()> {
     let ip_addr = value_t!(matches, "ip", Ipv4Addr);
     let switch_addr = value_t!(matches, "switch", Ipv4Addr);
 
+    let use_default = matches.is_present("use_default");
+
     match mode {
         Mode::Dev => start_dev_server(config),
-        Mode::Router => start_prod_server(
-            config,
-            ProdMode::Router,
-            env,
-            gdp_name?,
-            ip_addr?,
-            matches.is_present("use_default"),
-        ),
-        Mode::Switch => start_prod_server(
-            config,
-            ProdMode::Switch,
-            env,
-            gdp_name?,
-            ip_addr?,
-            matches.is_present("use_default"),
-        ),
+        Mode::Router => start_rib_server(config, env, gdp_name?, ip_addr?, use_default),
+        Mode::Switch => start_switch_server(config, env, gdp_name?, ip_addr?),
         Mode::Client => start_client_server(config, ip_addr?, switch_addr?, env),
+        Mode::Sidecar => {
+            start_sidecar_listener(config, ip_addr?, switch_addr?, "sidecar", 7878, false, env)
+        }
     }
 }

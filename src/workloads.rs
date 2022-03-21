@@ -53,7 +53,7 @@ fn prep_packet(
     certificates: Vec<Certificate>,
     payload_size: usize,
     random_dest_chance: f32,
-) -> Result<Gdp<Ipv4>> {
+) -> Result<Gdp<DTls<Ipv4>>> {
     let mut reply = reply.push::<Ethernet>()?;
     reply.set_src(src_mac);
     reply.set_dst(dst_mac);
@@ -72,7 +72,7 @@ fn prep_packet(
 
     let reply = reply.push::<DTls<Ipv4>>()?;
 
-    let mut reply = reply.push::<Gdp<Ipv4>>()?;
+    let mut reply = reply.push::<Gdp<DTls<Ipv4>>>()?;
     reply.set_action(GdpAction::Forward);
 
     reply.set_src(src_gdp_name);

@@ -9,10 +9,9 @@ use crate::dtls::{decrypt_gdp, encrypt_gdp, DTls};
 use crate::gdp::{Gdp, GdpAction};
 use crate::pipeline::GdpPipeline;
 
-
 pub fn install_gdp_pipeline(
     q: PortQueue,
-    gdp_pipeline: impl GdpPipeline,
+    gdp_pipeline: impl GdpPipeline<DTls<Ipv4>>,
     nic_name: &'_ str,
     node_addr: Ipv4Addr,
     debug: bool,
@@ -22,7 +21,7 @@ pub fn install_gdp_pipeline(
         .filter(move |packet| packet.dst() == node_addr)
         .map(|packet| packet.parse::<Udp<Ipv4>>()?.parse::<DTls<Ipv4>>())
         .map(decrypt_gdp)
-        .map(|packet| packet.parse::<Gdp<Ipv4>>())
+        .map(|packet| packet.parse::<Gdp<DTls<Ipv4>>>())
         .for_each(move |packet| {
             if debug {
                 println!(

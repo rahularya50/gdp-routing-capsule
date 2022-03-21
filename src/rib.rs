@@ -53,7 +53,7 @@ pub fn create_rib_request(
     src_mac: MacAddr,
     src_ip: Ipv4Addr,
     dst_ip: Ipv4Addr,
-) -> Result<Gdp<Ipv4>> {
+) -> Result<Gdp<DTls<Ipv4>>> {
     let mut message = message.push::<Ethernet>()?;
     message.set_src(src_mac);
     message.set_dst(MacAddr::broadcast());
@@ -68,7 +68,7 @@ pub fn create_rib_request(
 
     let message = message.push::<DTls<Ipv4>>()?;
 
-    let mut message = message.push::<Gdp<Ipv4>>()?;
+    let mut message = message.push::<Gdp<DTls<Ipv4>>>()?;
 
     message.set_action(GdpAction::RibGet);
 
@@ -100,7 +100,7 @@ pub fn send_rib_query(
         .run_once();
 }
 
-pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store, debug: bool) -> Result<()> {
+pub fn handle_rib_reply(packet: &Gdp<DTls<Ipv4>>, store: Store, debug: bool) -> Result<()> {
     let data_slice = packet
         .mbuf()
         .read_data_slice(packet.payload_offset(), packet.payload_len())?;
@@ -111,12 +111,12 @@ pub fn handle_rib_reply(packet: &Gdp<Ipv4>, store: Store, debug: bool) -> Result
 }
 
 fn handle_rib_query(
-    packet: &Gdp<Ipv4>,
+    packet: &Gdp<DTls<Ipv4>>,
     _nic_name: &str,
     routes: &Routes,
     _use_default: bool,
     debug: bool,
-) -> Result<Gdp<Ipv4>> {
+) -> Result<Gdp<DTls<Ipv4>>> {
     // read the query payload
     let data_slice = packet
         .mbuf()
@@ -144,7 +144,7 @@ fn handle_rib_query(
 
     let out = out.push::<DTls<Ipv4>>()?;
 
-    let mut out = out.push::<Gdp<Ipv4>>()?;
+    let mut out = out.push::<Gdp<DTls<Ipv4>>>()?;
     out.set_action(GdpAction::RibReply);
 
     let rib_response = generate_rib_response(query, routes, debug);
@@ -164,7 +164,7 @@ pub fn rib_pipeline(
     routes: &'static Routes,
     use_default: bool,
     debug: bool,
-) -> impl GdpPipeline {
+) -> impl GdpPipeline<DTls<Ipv4>> {
     pipeline! {
         GdpAction::RibGet => |group| {
             group.replace(move |packet| handle_rib_query(packet, nic_name, routes, use_default, debug))

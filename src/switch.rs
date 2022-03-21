@@ -9,6 +9,7 @@ use capsule::packets::{Packet, Udp};
 use capsule::Mbuf;
 
 use crate::certificates::{check_packet_certificates, CertDest, GdpMeta, RtCert};
+use crate::dtls::DTls;
 use crate::gdp::{CertificateBlock, Gdp, GdpAction};
 use crate::gdpbatch::GdpBatch;
 use crate::hardcoded_routes::WithBroadcast;
@@ -18,7 +19,7 @@ use crate::rib::{create_rib_request, handle_rib_reply};
 use crate::ribpayload::RibQuery;
 use crate::{pipeline, FwdTableEntry};
 
-fn find_destination(gdp: &Gdp<Ipv4>, store: Store) -> Option<Ipv4Addr> {
+fn find_destination(gdp: &Gdp<DTls<Ipv4>>, store: Store) -> Option<Ipv4Addr> {
     store.forwarding_table.get(&gdp.dst()).map(|x| x.ip)
 }
 
@@ -42,11 +43,11 @@ fn bounce_udp(udp: &mut Udp<Ipv4>) {
 }
 
 fn add_forwarding_cert(
-    mut gdp: Gdp<Ipv4>,
+    mut gdp: Gdp<DTls<Ipv4>>,
     store: Store,
     meta: GdpMeta,
     private_key: [u8; 32],
-) -> Result<Gdp<Ipv4>> {
+) -> Result<Gdp<DTls<Ipv4>>> {
     let CertificateBlock { mut certificates } = gdp.get_certs()?;
 
     let cert = match store.route_certs.get(&gdp.dst()) {
@@ -63,7 +64,7 @@ fn add_forwarding_cert(
     Ok(gdp)
 }
 
-fn forward_gdp(mut gdp: Gdp<Ipv4>, dst: Ipv4Addr) -> Result<Either<Gdp<Ipv4>>> {
+fn forward_gdp(mut gdp: Gdp<DTls<Ipv4>>, dst: Ipv4Addr) -> Result<Either<Gdp<DTls<Ipv4>>>> {
     let dtls = gdp.envelope_mut();
     let udp = dtls.envelope_mut();
     let ipv4 = udp.envelope_mut();
@@ -83,7 +84,7 @@ fn forward_gdp(mut gdp: Gdp<Ipv4>, dst: Ipv4Addr) -> Result<Either<Gdp<Ipv4>>> {
     Ok(Either::Keep(gdp))
 }
 
-fn bounce_gdp(mut gdp: Gdp<Ipv4>) -> Result<Gdp<Ipv4>> {
+fn bounce_gdp(mut gdp: Gdp<DTls<Ipv4>>) -> Result<Gdp<DTls<Ipv4>>> {
     if gdp.action()? == GdpAction::Forward {
         gdp.remove_payload()?;
         gdp.set_data_len(0);
@@ -102,18 +103,18 @@ pub fn switch_pipeline(
     nic_name: &'static str,
     rib_ip: Ipv4Addr,
     debug: bool,
-) -> impl GdpPipeline {
+) -> impl GdpPipeline<DTls<Ipv4>> {
     pipeline! {
         GdpAction::Forward => |group| {
             group
             .group_by(
-                move |packet| {
+                move |packet: &Gdp<DTls<Ipv4>>| {
                     check_packet_certificates(gdp_name, packet, &store, None, nic_name, debug)
                 },
                 pipeline! {
                     true => |group| {
                         group
-                        .for_each(move |packet| {
+                        .for_each(move |packet: &Gdp<DTls<Ipv4>>| {
                             // Back-cache the route for 100s to allow NACK to reflect
                             store.nack_reply_cache.put(
                                 packet.src(),
