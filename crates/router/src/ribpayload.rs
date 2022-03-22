@@ -2,10 +2,11 @@ use std::collections::HashMap;
 use std::iter::empty;
 
 use anyhow::{anyhow, Result};
+use client::GdpName;
 use serde::{Deserialize, Serialize};
 
 use crate::certificates::{CertContents, CertDest, Certificate, GdpMeta, RtCert};
-use crate::kvs::{GdpName, Store};
+use crate::kvs::Store;
 use crate::rib::{DynamicRoutes, Routes};
 use crate::FwdTableEntry;
 

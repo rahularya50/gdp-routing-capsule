@@ -9,17 +9,17 @@ use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Ethernet, Packet, Udp};
 use capsule::{Mbuf, PortQueue};
+use client::{GdpAction, GdpName};
 use rand::Rng;
 use serde::Deserialize;
 use tokio_timer::delay_for;
 
 use crate::certificates::{CertDest, Certificate, RtCert};
 use crate::dtls::{encrypt_gdp, DTls};
-use crate::gdp::{CertificateBlock, Gdp, GdpAction};
+use crate::gdp::{CertificateBlock, Gdp};
 use crate::hardcoded_routes::{
     gdp_name_of_index, metadata_of_index, private_key_of_index, WithBroadcast,
 };
-use crate::kvs::GdpName;
 use crate::rib::send_rib_query;
 use crate::ribpayload::RibQuery;
 use crate::runtime::build_runtime;

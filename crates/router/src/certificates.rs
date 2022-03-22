@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 use capsule::packets::Packet;
+use client::GdpName;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use signatory::ed25519::{Signature, SigningKey, VerifyingKey, ALGORITHM_ID};
@@ -11,7 +12,7 @@ use signatory::pkcs8::{FromPrivateKey, PrivateKeyInfo};
 use signatory::signature::{Signer, Verifier};
 
 use crate::gdp::Gdp;
-use crate::kvs::{GdpName, Store};
+use crate::kvs::Store;
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct GdpMeta {

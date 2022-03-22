@@ -7,13 +7,14 @@ use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Packet, Udp};
 use capsule::Mbuf;
+use client::{GdpAction, GdpName};
 
 use crate::certificates::{check_packet_certificates, CertDest, GdpMeta, RtCert};
 use crate::dtls::DTls;
-use crate::gdp::{CertificateBlock, Gdp, GdpAction};
+use crate::gdp::{CertificateBlock, Gdp};
 use crate::gdpbatch::GdpBatch;
 use crate::hardcoded_routes::WithBroadcast;
-use crate::kvs::{GdpName, Store};
+use crate::kvs::Store;
 use crate::pipeline::GdpPipeline;
 use crate::rib::{create_rib_request, handle_rib_reply};
 use crate::ribpayload::RibQuery;

@@ -1,61 +1,21 @@
-use std::convert::{TryFrom, TryInto};
 use std::fmt;
-use std::hash::Hash;
+use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 
 use anyhow::{anyhow, Result};
 use capsule::packets::ip::v4::Ipv4;
-use capsule::packets::ip::IpPacket;
 use capsule::packets::types::u16be;
 use capsule::packets::{Internal, Packet};
 use capsule::{ensure, SizeOf};
-use derivative::Derivative;
+use client::{GdpAction, GdpHeader, GdpName, MAGIC_NUMBERS};
 use serde::{Deserialize, Serialize};
-use strum_macros::EnumIter;
 
 use crate::certificates::Certificate;
-use crate::kvs::GdpName;
 use crate::DTls;
-
-const MAGIC_NUMBERS: u16 = u16::from_be_bytes([0x26, 0x2a]);
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, EnumIter)]
-pub enum GdpAction {
-    Noop = 0,
-    Put = 1,
-    Get = 2,
-    RibGet = 3,
-    RibReply = 4,
-    Forward = 5,
-    Nack = 6,
-}
-
-impl Default for GdpAction {
-    fn default() -> Self {
-        GdpAction::Noop
-    }
-}
-
-impl TryFrom<u8> for GdpAction {
-    type Error = anyhow::Error;
-
-    fn try_from(v: u8) -> Result<Self> {
-        match v {
-            x if x == GdpAction::Noop as u8 => Ok(GdpAction::Noop),
-            x if x == GdpAction::Get as u8 => Ok(GdpAction::Get),
-            x if x == GdpAction::Put as u8 => Ok(GdpAction::Put),
-            x if x == GdpAction::RibGet as u8 => Ok(GdpAction::RibGet),
-            x if x == GdpAction::RibReply as u8 => Ok(GdpAction::RibReply),
-            x if x == GdpAction::Forward as u8 => Ok(GdpAction::Forward),
-            x if x == GdpAction::Nack as u8 => Ok(GdpAction::Nack),
-            _ => Err(anyhow!("Unknown action byte")),
-        }
-    }
-}
 
 pub struct Gdp<T: Packet> {
     envelope: T,
-    header: NonNull<GdpHeader>,
+    header: NonNull<SizedGdpHeader>,
     offset: usize,
 }
 
@@ -189,7 +149,7 @@ impl<T: Packet> Packet for Gdp<T> {
 
     #[inline]
     fn header_len(&self) -> usize {
-        GdpHeader::size_of()
+        SizedGdpHeader::size_of()
     }
 
     #[inline]
@@ -214,7 +174,7 @@ impl<T: Packet> Packet for Gdp<T> {
         };
 
         ensure!(
-            out.header().field == MAGIC_NUMBERS.into(),
+            u16::from(out.header().field) == MAGIC_NUMBERS,
             anyhow!("not a GDP packet.")
         );
 
@@ -226,8 +186,8 @@ impl<T: Packet> Packet for Gdp<T> {
         let offset = envelope.payload_offset();
         let mbuf = envelope.mbuf_mut();
 
-        mbuf.extend(offset, GdpHeader::size_of())?;
-        let header = mbuf.write_data(offset, &GdpHeader::default())?;
+        mbuf.extend(offset, SizedGdpHeader::size_of())?;
+        let header = mbuf.write_data(offset, &SizedGdpHeader::default())?;
 
         Ok(Gdp {
             envelope,
@@ -247,21 +207,20 @@ impl<T: Packet> Packet for Gdp<T> {
     }
 }
 
-#[derive(Clone, Copy, Debug, SizeOf, Derivative)]
-#[derivative(Default)]
-#[repr(C)]
-struct GdpHeader {
-    field: u16be, // nonce used to identify GDP packets
-    #[derivative(Default(value = "64"))]
-    ttl: u8, // number of GDP-level hops remaining before packet is dropped
-    action: u8,   // GDP_ACTION enum
-    src: GdpName, // 256-bit source
-    dst: GdpName, // 256-bit destination
-    last_hop: GdpName, // most recent hop (updated on forwarding)
+#[derive(SizeOf, Default)]
+struct SizedGdpHeader(GdpHeader);
 
-    // size of data payload (format is header -> data -> certs)
-    // this is so we can easily append a cert without an extra copy
-    data_len: u16be,
+impl Deref for SizedGdpHeader {
+    type Target = GdpHeader;
+    fn deref(&self) -> &<Self as Deref>::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for SizedGdpHeader {
+    fn deref_mut(&mut self) -> &mut <Self as Deref>::Target {
+        &mut self.0
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]

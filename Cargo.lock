@@ -339,6 +339,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "derivative",
+ "strum",
+ "strum_macros",
+]
+
+[[package]]
 name = "cloudabi"
 version = "0.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -739,7 +749,7 @@ dependencies = [
  "capsule",
  "chrono",
  "clap",
- "derivative",
+ "client",
  "generic-array",
  "hdrhistogram",
  "lru",
@@ -752,8 +762,6 @@ dependencies = [
  "sha2 0.10.0",
  "signal-hook",
  "signatory",
- "strum",
- "strum_macros",
  "tokio",
  "tokio-executor",
  "tokio-net",
@@ -1561,10 +1569,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fdf1b9db47230893d76faad238fd6097fd6d6a9245cd7a4d90dbd639536bbd2"
 
 [[package]]
-name = "sidecar-lib"
-version = "0.1.0"
-
-[[package]]
 name = "signal-hook"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1996,9 +2000,9 @@ checksum = "b63708a265f51345575b27fe43f9500ad611579e764c79edbc2037b1121959ec"
 
 [[package]]
 name = "unicode-segmentation"
-version = "1.8.0"
+version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8895849a949e7845e06bd6dc1aa51731a103c42707010a5b591c0038fb73385b"
+checksum = "7e8820f5d777f6224dc4be3632222971ac30164d4a258d595640799554ebfd99"
 
 [[package]]
 name = "unicode-width"

@@ -8,13 +8,14 @@ use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Ethernet, Packet, Udp};
 use capsule::{Mbuf, PortQueue};
+use client::{GdpAction, GdpName};
 use serde::Deserialize;
 
 use crate::certificates::{Certificate, GdpMeta};
 use crate::dtls::{encrypt_gdp, DTls};
-use crate::gdp::{Gdp, GdpAction};
+use crate::gdp::Gdp;
 use crate::hardcoded_routes::WithBroadcast;
-use crate::kvs::{GdpName, Store};
+use crate::kvs::Store;
 use crate::ribpayload::{generate_rib_response, process_rib_response, RibQuery, RibResponse};
 use crate::{pipeline, GdpPipeline};
 

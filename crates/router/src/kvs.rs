@@ -7,12 +7,10 @@ use std::ops::Add;
 use std::sync::RwLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use client::GdpName;
 use lru::LruCache;
 
 use crate::certificates::{CertContents, Certificate, GdpMeta, RtCert};
-
-pub type GdpName = [u8; 32];
-
 pub trait Expirable {
     fn is_expired(&self) -> bool;
 }

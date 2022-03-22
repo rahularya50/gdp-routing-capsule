@@ -20,7 +20,6 @@ use crate::Env;
 pub fn start_rib_server(
     config: RuntimeConfig,
     env: Env,
-    gdp_index: u8,
     node_addr: Ipv4Addr,
     use_default: bool,
 ) -> Result<()> {

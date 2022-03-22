@@ -5,12 +5,12 @@ use capsule::batch::{Batch, Disposition, Poll};
 use capsule::config::RuntimeConfig;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Ethernet, Packet, Udp};
+use client::{GdpAction, GdpName};
 
 use crate::certificates::{CertDest, GdpMeta, RtCert};
 use crate::dtls::{decrypt_gdp, encrypt_gdp, DTls};
-use crate::gdp::{Gdp, GdpAction};
+use crate::gdp::Gdp;
 use crate::hardcoded_routes::{gdp_name_of_index, metadata_of_index, private_key_of_index};
-use crate::kvs::GdpName;
 use crate::pipeline::GdpPipeline;
 use crate::rib::send_rib_query;
 use crate::ribpayload::RibQuery;
@@ -28,6 +28,7 @@ fn incoming_sidecar_pipeline(
     // at this stage, incoming packets have been decrypted and spurious packets discarded
     pipeline!(
         GdpAction::Forward => |group| {
+            todo!();
             group
         }
     )
@@ -44,6 +45,7 @@ fn outgoing_sidecar_pipeline(
     // our responsibility is to set up the certificates and forward to the switch
     pipeline!(
         GdpAction::Forward => |group| {
+            todo!();
             group
         }
     )

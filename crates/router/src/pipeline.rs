@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
 use capsule::batch::GroupByBatchBuilder;
-use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::Packet;
+use client::GdpAction;
 
-use crate::gdp::{Gdp, GdpAction};
+use crate::gdp::Gdp;
 
 pub type GdpGroupAction<U> = Box<GroupByBatchBuilder<U>>;
 pub type GdpMap<T, U> = HashMap<Option<T>, GdpGroupAction<U>>;

@@ -3,12 +3,12 @@ use std::sync::RwLock;
 
 use anyhow::Result;
 use capsule::net::MacAddr;
+use client::GdpName;
 use serde::Deserialize;
 use signatory::ed25519::{SigningKey, VerifyingKey, ALGORITHM_ID};
 use signatory::pkcs8::{FromPrivateKey, PrivateKeyInfo};
 
 use crate::certificates::GdpMeta;
-use crate::kvs::GdpName;
 use crate::rib::{DynamicRoutes, Route, Routes};
 use crate::Env;
 
