@@ -8,3 +8,10 @@ anyhow = "1.0"
 strum = "0.21"
 strum_macros = "0.21"
 derivative = "2.2.0"
+
+[build-dependencies]
+cbindgen = "0.20.0"
+
+[lib]
+name = "gdp_client"
+crate-type = ["cdylib"]

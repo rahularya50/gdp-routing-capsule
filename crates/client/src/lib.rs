@@ -3,6 +3,7 @@ mod structs;
 use std::intrinsics::transmute;
 use std::mem::size_of;
 use std::net::{SocketAddr, UdpSocket};
+use std::ptr::slice_from_raw_parts;
 
 use anyhow::{ensure, Result};
 
@@ -17,6 +18,30 @@ impl GDPClient {
         let socket = UdpSocket::bind(SocketAddr::from(([127, 0, 0, 1], lib_port)))?;
         socket.connect(SocketAddr::from(([127, 0, 0, 1], sidecar_port)))?;
         Ok(GDPClient { socket })
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn new_ffi(out: *mut Self, lib_port: u16, sidecar_port: u16) -> i8 {
+        match Self::new(lib_port, sidecar_port) {
+            Ok(client) => {
+                *out = client;
+                0
+            }
+            Err(_) => -1,
+        }
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn send_packet_ffi(
+        &self,
+        dest: *const GdpName,
+        payload: *const u8,
+        payload_len: usize,
+    ) -> i8 {
+        match self.send_packet(*dest, &*slice_from_raw_parts(payload, payload_len)) {
+            Ok(_) => 0,
+            Err(_) => -1,
+        }
     }
 
     pub fn send_packet(&self, dest: GdpName, payload: &[u8]) -> Result<()> {
