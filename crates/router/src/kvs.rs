@@ -7,7 +7,7 @@ use std::ops::Add;
 use std::sync::RwLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use client::GdpName;
+use gdp_client::GdpName;
 use lru::LruCache;
 
 use crate::certificates::{CertContents, Certificate, GdpMeta, RtCert};

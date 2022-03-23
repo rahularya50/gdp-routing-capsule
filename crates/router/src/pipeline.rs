@@ -2,8 +2,7 @@ use std::collections::HashMap;
 
 use capsule::batch::GroupByBatchBuilder;
 use capsule::packets::ip::v4::Ipv4;
-
-use client::GdpAction;
+use gdp_client::GdpAction;
 
 use crate::dtls::DTls;
 use crate::gdp::Gdp;

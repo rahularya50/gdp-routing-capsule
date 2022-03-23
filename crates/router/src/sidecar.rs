@@ -7,7 +7,7 @@ use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Ethernet, Packet, Udp};
 use capsule::PortQueue;
-use client::{GdpAction, GdpName};
+use gdp_client::{GdpAction, GdpName};
 
 use crate::certificates::{CertDest, GdpMeta, RtCert};
 use crate::dtls::{decrypt_gdp, encrypt_gdp, DTls};

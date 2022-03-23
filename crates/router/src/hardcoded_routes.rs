@@ -3,7 +3,7 @@ use std::sync::RwLock;
 
 use anyhow::Result;
 use capsule::net::MacAddr;
-use client::GdpName;
+use gdp_client::GdpName;
 use serde::Deserialize;
 use signatory::ed25519::{SigningKey, VerifyingKey, ALGORITHM_ID};
 use signatory::pkcs8::{FromPrivateKey, PrivateKeyInfo};

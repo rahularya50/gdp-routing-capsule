@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 use capsule::packets::Packet;
-use client::GdpName;
+use gdp_client::GdpName;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use signatory::ed25519::{Signature, SigningKey, VerifyingKey, ALGORITHM_ID};

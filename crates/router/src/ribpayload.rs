@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::iter::empty;
 
 use anyhow::{anyhow, Result};
-use client::GdpName;
+use gdp_client::GdpName;
 use serde::{Deserialize, Serialize};
 
 use crate::certificates::{CertContents, CertDest, Certificate, GdpMeta, RtCert};

@@ -6,7 +6,7 @@ use anyhow::{anyhow, Result};
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Internal, Packet};
 use capsule::{ensure, SizeOf};
-use client::{GdpAction, GdpHeader, GdpName, MAGIC_NUMBERS};
+use gdp_client::{GdpAction, GdpHeader, GdpName, MAGIC_NUMBERS};
 use serde::{Deserialize, Serialize};
 
 use crate::certificates::Certificate;

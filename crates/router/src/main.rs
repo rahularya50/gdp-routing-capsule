@@ -78,8 +78,8 @@ fn main() -> Result<()> {
         (@arg name: -n --name +takes_value "The GDPName of this node (used for packet filtering)")
         (@arg ip: --ip +takes_value "The IP address of this node")
         (@arg switch: -s --switch +takes_value "The IP address of the local switch")
-        (@arg use_default: --default-routes !takes_value "For Router mode, send default response even when GDP Name is invalid")
-        (@arg debug: -d --default !takes_value "Show detailed debugging messages")
+        (@arg use_default: --default !takes_value "For Router mode, send default response even when GDP Name is invalid")
+        (@arg debug: -d --debug !takes_value "Show detailed debugging messages")
     )
     .get_matches();
 
@@ -112,7 +112,7 @@ fn main() -> Result<()> {
         Mode::Switch => start_switch_server(config, env, gdp_name?, ip_addr?),
         Mode::Client => start_client_server(config, ip_addr?, switch_addr?, env),
         Mode::Sidecar => {
-            start_sidecar_listener(config, ip_addr?, switch_addr?, "sidecar", false, env)
+            start_sidecar_listener(config, ip_addr?, switch_addr?, "sidecar", debug, env)
         }
     }
 }

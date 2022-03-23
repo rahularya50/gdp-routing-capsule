@@ -4,7 +4,7 @@ use capsule::batch::{Batch, Either, Pipeline, Poll};
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Ethernet, Packet, Udp};
 use capsule::PortQueue;
-use client::GdpAction;
+use gdp_client::GdpAction;
 
 use crate::dtls::{decrypt_gdp, encrypt_gdp, DTls};
 use crate::gdp::Gdp;

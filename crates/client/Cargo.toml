@@ -1,5 +1,5 @@
 [package]
-name = "client"
+name = "gdp_client"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,6 +8,7 @@ anyhow = "1.0"
 strum = "0.21"
 strum_macros = "0.21"
 derivative = "2.2.0"
+pyo3 = { version = "0.16.2", features = ["extension-module"] }
 
 [build-dependencies]
 anyhow = "1.0"
@@ -15,4 +16,4 @@ cbindgen = "0.20.0"
 
 [lib]
 name = "gdp_client"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "lib"]

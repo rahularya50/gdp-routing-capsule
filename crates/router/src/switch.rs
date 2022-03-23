@@ -7,7 +7,7 @@ use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Packet, Udp};
 use capsule::Mbuf;
-use client::{GdpAction, GdpName};
+use gdp_client::{GdpAction, GdpName};
 
 use crate::certificates::{check_packet_certificates, CertDest, GdpMeta, RtCert};
 use crate::dtls::DTls;

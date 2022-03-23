@@ -9,7 +9,7 @@ use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Ethernet, Packet, Udp};
 use capsule::{Mbuf, PortQueue};
-use client::{GdpAction, GdpName};
+use gdp_client::{GdpAction, GdpName};
 use rand::Rng;
 use serde::Deserialize;
 use tokio_timer::delay_for;
