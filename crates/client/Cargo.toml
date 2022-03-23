@@ -10,6 +10,7 @@ strum_macros = "0.21"
 derivative = "2.2.0"
 
 [build-dependencies]
+anyhow = "1.0"
 cbindgen = "0.20.0"
 
 [lib]

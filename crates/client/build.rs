@@ -1,11 +1,21 @@
 use std::env;
 
-fn main() {
-    let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+use anyhow::Result;
+
+fn main() -> Result<()> {
+    let crate_dir = env::var("CARGO_MANIFEST_DIR")?;
+
+    cbindgen::Builder::new()
+        .with_crate(crate_dir.clone())
+        .with_language(cbindgen::Language::Cxx)
+        .generate()?
+        .write_to_file("bindings.hpp");
 
     cbindgen::Builder::new()
         .with_crate(crate_dir)
-        .generate()
-        .expect("Unable to generate bindings")
-        .write_to_file("bindings.h");
+        .with_language(cbindgen::Language::Cython)
+        .generate()?
+        .write_to_file("bindings.pyx");
+
+    Ok(())
 }
