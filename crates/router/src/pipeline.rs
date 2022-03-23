@@ -1,16 +1,18 @@
 use std::collections::HashMap;
 
 use capsule::batch::GroupByBatchBuilder;
-use capsule::packets::Packet;
+use capsule::packets::ip::v4::Ipv4;
+
 use client::GdpAction;
 
+use crate::dtls::DTls;
 use crate::gdp::Gdp;
 
 pub type GdpGroupAction<U> = Box<GroupByBatchBuilder<U>>;
 pub type GdpMap<T, U> = HashMap<Option<T>, GdpGroupAction<U>>;
-pub trait GdpPipeline<T: Packet>: FnOnce(&mut GdpMap<GdpAction, Gdp<T>>) {}
+pub trait GdpPipeline: FnOnce(&mut GdpMap<GdpAction, Gdp<DTls<Ipv4>>>) {}
 
-impl<T: FnOnce(&mut GdpMap<GdpAction, Gdp<U>>), U: Packet> GdpPipeline<U> for T {}
+impl<T: FnOnce(&mut GdpMap<GdpAction, Gdp<DTls<Ipv4>>>)> GdpPipeline for T {}
 
 #[doc(hidden)]
 #[macro_export]

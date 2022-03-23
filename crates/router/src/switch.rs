@@ -104,7 +104,7 @@ pub fn switch_pipeline(
     nic_name: &'static str,
     rib_ip: Ipv4Addr,
     debug: bool,
-) -> impl GdpPipeline<DTls<Ipv4>> {
+) -> impl GdpPipeline {
     pipeline! {
         GdpAction::Forward => |group| {
             group

@@ -33,3 +33,11 @@ duration = 20
     cores = [0]
     rxd = 512
     txd = 512
+
+[[ports]]
+    name = "loc"
+    device = "net_tap0"
+    args = "iface=controltap"
+    cores = [0]
+    rxd = 1024
+    txd = 1024

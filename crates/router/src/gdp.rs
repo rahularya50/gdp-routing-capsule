@@ -4,7 +4,6 @@ use std::ptr::NonNull;
 
 use anyhow::{anyhow, Result};
 use capsule::packets::ip::v4::Ipv4;
-use capsule::packets::types::u16be;
 use capsule::packets::{Internal, Packet};
 use capsule::{ensure, SizeOf};
 use client::{GdpAction, GdpHeader, GdpName, MAGIC_NUMBERS};

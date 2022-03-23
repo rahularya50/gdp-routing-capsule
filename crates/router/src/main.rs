@@ -1,4 +1,5 @@
 #![feature(array_methods)]
+#![feature(type_alias_impl_trait)]
 
 use std::fs;
 use std::net::Ipv4Addr;
@@ -27,6 +28,7 @@ mod gdpbatch;
 mod hardcoded_routes;
 mod inject;
 mod kvs;
+mod packet_logging;
 mod pipeline;
 mod prodsetup;
 mod rib;
@@ -108,7 +110,7 @@ fn main() -> Result<()> {
         Mode::Switch => start_switch_server(config, env, gdp_name?, ip_addr?),
         Mode::Client => start_client_server(config, ip_addr?, switch_addr?, env),
         Mode::Sidecar => {
-            start_sidecar_listener(config, ip_addr?, switch_addr?, "sidecar", 7878, false, env)
+            start_sidecar_listener(config, ip_addr?, switch_addr?, "sidecar", false, env)
         }
     }
 }

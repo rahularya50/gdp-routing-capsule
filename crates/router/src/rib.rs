@@ -165,7 +165,7 @@ pub fn rib_pipeline(
     routes: &'static Routes,
     use_default: bool,
     debug: bool,
-) -> impl GdpPipeline<DTls<Ipv4>> {
+) -> impl GdpPipeline {
     pipeline! {
         GdpAction::RibGet => |group| {
             group.replace(move |packet| handle_rib_query(packet, nic_name, routes, use_default, debug))
