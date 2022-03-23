@@ -17,35 +17,34 @@ pub trait LogFail: Batch + Sized {
     fn logfail(self, name: &'static str, details: &'static str, debug: bool) -> Self::OutBatch;
 }
 
-trait HasSrcDest {
+pub trait HasSrcDest {
     fn src(&self) -> Ipv4Addr;
     fn dst(&self) -> Ipv4Addr;
 }
 
-impl HasSrcDest for Gdp<DTls<Ipv4>> {
+impl HasSrcDest for DTls<Ipv4> {
     fn src(&self) -> Ipv4Addr {
-        return self.envelope().envelope().envelope().src();
+        return self.envelope().envelope().src();
     }
 
     fn dst(&self) -> Ipv4Addr {
-        return self.envelope().envelope().envelope().src();
+        return self.envelope().envelope().src();
     }
 }
 
-impl HasSrcDest for Gdp<Udp<Ipv4>> {
+impl HasSrcDest for Udp<Ipv4> {
     fn src(&self) -> Ipv4Addr {
-        return self.envelope().envelope().src();
+        return self.envelope().src();
     }
 
     fn dst(&self) -> Ipv4Addr {
-        return self.envelope().envelope().src();
+        return self.envelope().src();
     }
 }
 
 impl<T: Batch<Item = Gdp<U>> + Sized, U> LogArrive for T
 where
-    T::Item: HasSrcDest,
-    U: Packet,
+    U: Packet + HasSrcDest,
 {
     type OutBatch = impl Batch<Item = Self::Item>;
 

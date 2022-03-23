@@ -9,13 +9,7 @@ fn main() -> Result<()> {
         .with_crate(crate_dir.clone())
         .with_language(cbindgen::Language::Cxx)
         .generate()?
-        .write_to_file("bindings.hpp");
-
-    cbindgen::Builder::new()
-        .with_crate(crate_dir)
-        .with_language(cbindgen::Language::Cython)
-        .generate()?
-        .write_to_file("bindings.pyx");
+        .write_to_file("gdp_client.hpp");
 
     Ok(())
 }

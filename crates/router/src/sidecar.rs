@@ -15,22 +15,16 @@ use crate::gdp::{CertificateBlock, Gdp};
 use crate::hardcoded_routes::{
     gdp_name_of_index, metadata_of_index, private_key_of_index, WithBroadcast,
 };
-use crate::packet_logging::LogFail;
+use crate::packet_logging::{LogArrive, LogFail};
 use crate::rib::send_rib_query;
 use crate::ribpayload::RibQuery;
 use crate::runtime::build_runtime;
 use crate::{pipeline, Env};
 
-fn base_sidecar_pipeline(q: PortQueue, node_addr: Ipv4Addr) -> impl Batch<Item = Udp<Ipv4>> {
-    Poll::new(q)
-        .map(|packet| packet.parse::<Ethernet>()?.parse::<Ipv4>())
-        .filter(move |packet| packet.dst() == node_addr)
-        .map(|packet| packet.parse::<Udp<Ipv4>>())
-}
-
 #[allow(unused)]
-fn append_incoming_sidecar_pipeline(
-    batch: impl Batch<Item = Udp<Ipv4>>,
+fn incoming_sidecar_pipeline(
+    q: PortQueue,
+    node_addr: Ipv4Addr,
     gdp_name: GdpName,
     meta: GdpMeta,
     private_key: [u8; 32],
@@ -39,11 +33,15 @@ fn append_incoming_sidecar_pipeline(
 ) -> impl Batch {
     // our responsibility is to validate the certificates, strip GDP headers, and forward to the receiver
     // at this stage, incoming packets have been decrypted and spurious packets discarded
-    batch
+    Poll::new(q)
+        .map(|packet| packet.parse::<Ethernet>()?.parse::<Ipv4>())
+        .filter(move |packet| packet.dst() == node_addr)
+        .map(|packet| packet.parse::<Udp<Ipv4>>())
         .map(|packet| packet.parse::<DTls<Ipv4>>())
         .map(decrypt_gdp)
         .map(|packet| packet.remove())
         .map(|packet| packet.parse::<Gdp<Udp<Ipv4>>>())
+        .logarrive(name, "incoming", debug)
         .group_by(
             |packet| packet.action().unwrap_or(GdpAction::Noop),
             pipeline!(
@@ -55,16 +53,16 @@ fn append_incoming_sidecar_pipeline(
         .map(|packet| Ok(packet.deparse()))
 }
 
-fn append_outgoing_sidecar_pipeline(
-    batch: impl Batch<Item = Udp<Ipv4>>,
+fn outgoing_sidecar_pipeline(
+    q: PortQueue,
     gdp_name: GdpName,
     meta: GdpMeta,
     private_key: [u8; 32],
-    _name: &'static str,
+    name: &'static str,
     node_ip: Ipv4Addr,
     node_mac: MacAddr,
     switch_ip: Ipv4Addr,
-    _debug: bool,
+    debug: bool,
 ) -> impl Batch {
     // our responsibility is to set up the certificates and forward to the switch
     let certificates = vec![RtCert::new_wrapped(
@@ -77,8 +75,11 @@ fn append_outgoing_sidecar_pipeline(
 
     let certificates = CertificateBlock { certificates };
 
-    batch
+    Poll::new(q)
+        .map(|packet| packet.parse::<Ethernet>()?.parse::<Ipv4>())
+        .map(|packet| packet.parse::<Udp<Ipv4>>())
         .map(|packet: Udp<Ipv4>| packet.parse::<Gdp<Udp<Ipv4>>>())
+        .logarrive(name, "outgoing", debug)
         .group_by(
             |packet| packet.action().unwrap_or(GdpAction::Noop),
             pipeline!(
@@ -138,8 +139,9 @@ pub fn start_sidecar_listener(
                 ),
                 nic_name,
             );
-            append_incoming_sidecar_pipeline(
-                base_sidecar_pipeline(q["eth1"].clone(), node_addr),
+            incoming_sidecar_pipeline(
+                q["eth1"].clone(),
+                node_addr,
                 gdp_name,
                 meta,
                 private_key,
@@ -150,8 +152,8 @@ pub fn start_sidecar_listener(
             .send(q["loc"].clone())
         })?
         .add_pipeline_to_core(0, move |q| {
-            append_outgoing_sidecar_pipeline(
-                base_sidecar_pipeline(q["loc"].clone(), node_addr),
+            outgoing_sidecar_pipeline(
+                q["loc"].clone(),
                 gdp_name,
                 meta,
                 private_key,
