@@ -1,13 +1,14 @@
 use std::net::Ipv4Addr;
 
 use anyhow::Result;
-use capsule::batch::{Batch, Poll};
+use capsule::batch::{Batch, Disposition, Poll};
 use capsule::config::RuntimeConfig;
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Ethernet, Packet, Udp};
 use capsule::PortQueue;
 use gdp_client::{GdpAction, GdpName};
+use tracing::warn;
 
 use crate::certificates::{CertDest, GdpMeta, RtCert};
 use crate::dtls::{decrypt_gdp, encrypt_gdp, DTls};
@@ -76,7 +77,15 @@ fn outgoing_sidecar_pipeline(
     let certificates = CertificateBlock { certificates };
 
     Poll::new(q)
-        .map(|packet| packet.parse::<Ethernet>()?.parse::<Ipv4>())
+        .map(|packet| packet.parse::<Ethernet>())
+        .inspect(move |disp| {
+            if debug {
+                if let Disposition::Act(p) = disp {
+                    warn!(?p)
+                }
+            }
+        })
+        .map(|packet| packet.parse::<Ipv4>())
         .map(|packet| packet.parse::<Udp<Ipv4>>())
         .map(|packet: Udp<Ipv4>| packet.parse::<Gdp<Udp<Ipv4>>>())
         .logarrive(name, "outgoing", debug)

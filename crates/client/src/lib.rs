@@ -1,7 +1,6 @@
 mod structs;
 
-use std::intrinsics::transmute;
-use std::mem::size_of;
+use std::mem::{size_of, transmute};
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::ptr::slice_from_raw_parts;
 use std::str::FromStr;

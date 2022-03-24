@@ -1,8 +1,10 @@
 import socket
 
-SOURCE_PORT = 27182
+SOURCE_PORT = 27183
 
-TARGET_IP = "128.32.37.41"
+# TARGET_IP = "128.32.37.41"
+TARGET_IP = "10.0.1.1"
+# TARGET_IP = "127.0.1.0"
 TARGET_PORT = 31415
 DEFAULT_PAYLOAD = b"Not hello"
 
@@ -52,16 +54,16 @@ s.sendto(
 )
 
 # s.sendto(build_message(GET, KEY, VALUE), (TARGET_IP, TARGET_PORT))
-received_data, origin = s.recvfrom(1024)
+# received_data, origin = s.recvfrom(1024)
 
-magic, action, key, value, payload = (
-    received_data[:2],
-    received_data[2:3],
-    received_data[3:35],
-    received_data[35:67],
-    received_data[67:],
-)
+# magic, action, key, value, payload = (
+#     received_data[:2],
+#     received_data[2:3],
+#     received_data[3:35],
+#     received_data[35:67],
+#     received_data[67:],
+# )
 
-assert magic == MAGIC_BYTES
+# assert magic == MAGIC_BYTES
 
-print(action, key, value, payload)
+# print(action, key, value, payload)
