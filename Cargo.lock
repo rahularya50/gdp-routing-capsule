@@ -795,9 +795,11 @@ name = "gdp_client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bincode",
  "cbindgen",
  "derivative",
  "pyo3",
+ "serde",
  "strum",
  "strum_macros",
 ]

@@ -1,16 +1,16 @@
-use std::borrow::Cow;
 use std::net::Ipv4Addr;
 use std::sync::RwLock;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use capsule::batch::{Batch, Disposition, Poll};
 use capsule::config::RuntimeConfig;
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Ethernet, Packet, Udp};
 use capsule::PortQueue;
-use gdp_client::{GdpAction, GdpName};
-use serde::{Deserialize, Serialize};
+use gdp_client::{
+    ClientCommand, ClientCommands, ClientResponse, ClientResponses, GdpAction, GdpName,
+};
 use tracing::warn;
 
 use crate::certificates::{CertDest, GdpMeta, RtCert};
@@ -25,26 +25,6 @@ use crate::rib::send_rib_query;
 use crate::ribpayload::RibQuery;
 use crate::runtime::build_runtime;
 use crate::{pipeline, Env};
-#[derive(Deserialize, Serialize)]
-struct ClientCommands {
-    messages: Vec<ClientCommand>,
-}
-#[derive(Deserialize, Serialize)]
-struct ClientResponses<'a> {
-    #[serde(borrow)]
-    messages: Vec<ClientResponse<'a>>,
-}
-
-#[derive(Deserialize, Serialize)]
-enum ClientCommand {
-    SetPort { port: u16 },
-}
-
-#[derive(Deserialize, Serialize)]
-enum ClientResponse<'a> {
-    PortSet { port: u16 },
-    Error { msg: Cow<'a, str> },
-}
 
 fn execute_command(command: &ClientCommand, state: &SidecarState) -> ClientResponse<'static> {
     match command {
@@ -160,7 +140,10 @@ fn outgoing_sidecar_pipeline(
                         .map(move |mut packet| {
                             // run commands
                             let ClientCommands { messages } =
-                                bincode::deserialize(get_payload(&packet)?)?;
+                                bincode::deserialize(
+                                    get_payload(&packet)
+                                        .context("failed to extract packet payload")?)
+                                    .context("failed to deserialize payload into commands")?;
                             let response = bincode::serialize(&ClientResponses {
                                 messages: messages.iter().map(|msg| execute_command(msg, state)).collect(),
                             })?;
@@ -184,7 +167,7 @@ fn outgoing_sidecar_pipeline(
                 }
             ),
         )
-        .map(|packet| Ok(packet.deparse().push()?))
+        .map(|packet| packet.deparse().push())
         .map(encrypt_gdp)
         .map(|packet| Ok(packet.deparse()))
 }

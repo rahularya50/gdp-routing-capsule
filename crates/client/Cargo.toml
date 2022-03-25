@@ -9,6 +9,8 @@ strum = "0.21"
 strum_macros = "0.21"
 derivative = "2.2.0"
 pyo3 = { version = "0.16.2", features = ["extension-module"] }
+serde = "1.0.130"
+bincode = "1.2.1"
 
 [build-dependencies]
 anyhow = "1.0"

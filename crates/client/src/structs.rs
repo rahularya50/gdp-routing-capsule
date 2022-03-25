@@ -35,6 +35,7 @@ impl TryFrom<u8> for GdpAction {
             x if x == GdpAction::RibReply as u8 => Ok(GdpAction::RibReply),
             x if x == GdpAction::Forward as u8 => Ok(GdpAction::Forward),
             x if x == GdpAction::Nack as u8 => Ok(GdpAction::Nack),
+            x if x == GdpAction::Control as u8 => Ok(GdpAction::Control),
             _ => Err(anyhow!("Unknown action byte")),
         }
     }

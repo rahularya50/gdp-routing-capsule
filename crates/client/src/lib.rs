@@ -1,3 +1,4 @@
+mod control;
 mod structs;
 
 use std::ffi::CStr;
@@ -10,8 +11,8 @@ use std::str::FromStr;
 use anyhow::{ensure, Context, Error, Result};
 use pyo3::types::PyModule;
 use pyo3::{create_exception, pyclass, pymethods, pymodule, PyErr, PyResult, Python};
-use structs::u16be;
 
+pub use crate::control::{ClientCommand, ClientCommands, ClientResponse, ClientResponses};
 pub use crate::structs::{GdpAction, GdpHeader, GdpName, MAGIC_NUMBERS};
 
 // https://stackoverflow.com/questions/28127165/how-to-convert-struct-to-u8
@@ -48,10 +49,15 @@ impl GDPClient {
         .map_err(py_err)
     }
 
-    #[no_mangle]
     fn send_packet_py(&self, dest: GdpName, payload: &[u8]) -> PyResult<()> {
         self.send_packet(dest, payload)
             .context("failed to send packet")
+            .map_err(py_err)
+    }
+
+    fn listen_on_port_py(&self, port: u16) -> PyResult<()> {
+        self.listen_on_port(port)
+            .context("failed to send control packet")
             .map_err(py_err)
     }
 }
@@ -75,7 +81,7 @@ impl GDPClient {
             .map(|_| CStr::from_ptr(ip))
             .and_then(|str| Ok(CStr::to_str(str)?))
             .and_then(|str| Ok(Ipv4Addr::from_str(str)?))
-            .and_then(|ip| Ok(Self::new(ip, sidecar_port)?))
+            .and_then(|ip| Self::new(ip, sidecar_port))
             .map(|client| {
                 *out = client;
                 0
@@ -128,7 +134,12 @@ impl GDPClient {
             ..Default::default()
         };
 
-        self.send_header_and_data(&header, unsafe { any_as_u8_slice(&u16be::from(port)) })
+        let data = bincode::serialize(&ClientCommands {
+            messages: vec![ClientCommand::SetPort { port }],
+        })
+        .context("failed to serialize commands for transmission")?;
+
+        self.send_header_and_data(&header, &data)
     }
 }
 
