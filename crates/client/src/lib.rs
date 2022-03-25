@@ -1,15 +1,23 @@
 mod structs;
 
-use std::mem::{size_of, transmute};
+use std::ffi::CStr;
+use std::mem::size_of;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+use std::os::raw::c_char;
 use std::ptr::slice_from_raw_parts;
 use std::str::FromStr;
 
 use anyhow::{ensure, Context, Error, Result};
 use pyo3::types::PyModule;
 use pyo3::{create_exception, pyclass, pymethods, pymodule, PyErr, PyResult, Python};
+use structs::u16be;
 
 pub use crate::structs::{GdpAction, GdpHeader, GdpName, MAGIC_NUMBERS};
+
+// https://stackoverflow.com/questions/28127165/how-to-convert-struct-to-u8
+unsafe fn any_as_u8_slice<T: Sized>(p: &T) -> &[u8] {
+    &*slice_from_raw_parts((p as *const T) as *const u8, size_of::<T>())
+}
 
 #[pyclass]
 pub struct GDPClient {
@@ -61,16 +69,19 @@ impl GDPClient {
         Ok(GDPClient { socket })
     }
 
-    // #[no_mangle]
-    // pub unsafe extern "C" fn new_ffi(out: *mut Self, lib_port: u16, sidecar_port: u16) -> i8 {
-    //     match Self::new(lib_port, sidecar_port) {
-    //         Ok(client) => {
-    //             *out = client;
-    //             0
-    //         }
-    //         Err(_) => -1,
-    //     }
-    // }
+    #[no_mangle]
+    pub unsafe extern "C" fn new_ffi(out: *mut Self, ip: *const c_char, sidecar_port: u16) -> i8 {
+        Result::<_, Error>::Ok(())
+            .map(|_| CStr::from_ptr(ip))
+            .and_then(|str| Ok(CStr::to_str(str)?))
+            .and_then(|str| Ok(Ipv4Addr::from_str(str)?))
+            .and_then(|ip| Ok(Self::new(ip, sidecar_port)?))
+            .map(|client| {
+                *out = client;
+                0
+            })
+            .unwrap_or(-1)
+    }
 
     #[no_mangle]
     pub unsafe extern "C" fn send_packet_ffi(
@@ -85,8 +96,18 @@ impl GDPClient {
         }
     }
 
-    pub fn send_packet(&self, dest: GdpName, payload: &[u8]) -> Result<()> {
+    fn send_header_and_data(&self, header: &GdpHeader, data: &[u8]) -> Result<()> {
         let mut buffer = vec![];
+
+        buffer.extend(unsafe { any_as_u8_slice(header) });
+        buffer.extend(data);
+
+        let len = self.socket.send(&buffer)?;
+        ensure!(buffer.len() == len, "sent only {} bytes", len);
+        Ok(())
+    }
+
+    pub fn send_packet(&self, dest: GdpName, payload: &[u8]) -> Result<()> {
         let header = GdpHeader {
             field: MAGIC_NUMBERS.into(),
             ttl: 64,
@@ -97,14 +118,17 @@ impl GDPClient {
             data_len: (payload.len() as u16).into(),
         };
 
-        let header = unsafe { transmute::<_, [u8; size_of::<GdpHeader>()]>(header) };
+        self.send_header_and_data(&header, payload)
+    }
 
-        buffer.extend(header);
-        buffer.extend(payload);
+    pub fn listen_on_port(&self, port: u16) -> Result<()> {
+        let header = GdpHeader {
+            field: MAGIC_NUMBERS.into(),
+            action: GdpAction::Control as u8,
+            ..Default::default()
+        };
 
-        let len = self.socket.send(&buffer[..])?;
-        ensure!(buffer.len() == len, "sent only {} bytes", len);
-        Ok(())
+        self.send_header_and_data(&header, unsafe { any_as_u8_slice(&u16be::from(port)) })
     }
 }
 

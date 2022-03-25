@@ -39,6 +39,7 @@ mod sidecar;
 mod statistics;
 mod switch;
 mod workloads;
+mod packet_ops;
 
 arg_enum! {
     #[derive(PartialEq)]
