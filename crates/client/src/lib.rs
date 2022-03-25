@@ -5,7 +5,7 @@ use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::ptr::slice_from_raw_parts;
 use std::str::FromStr;
 
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Error, Result};
 use pyo3::types::PyModule;
 use pyo3::{create_exception, pyclass, pymethods, pymodule, PyErr, PyResult, Python};
 
@@ -22,8 +22,8 @@ create_exception!(
     pyo3::exceptions::PyException
 );
 
-fn py_err(msg: String) -> PyErr {
-    PyErr::new::<PyGdpClientException, _>(msg)
+fn py_err(err: Error) -> PyErr {
+    PyErr::new::<PyGdpClientException, _>(format!("{:#}", err))
 }
 
 #[pymethods]
@@ -31,29 +31,33 @@ impl GDPClient {
     #[new]
     fn new_py(sidecar_ip: &str, recv_port: u16) -> PyResult<Self> {
         GDPClient::new(
-            Ipv4Addr::from_str(sidecar_ip).map_err(|err| {
-                py_err(format!(
-                    "Invalid IP address {} ({})",
-                    sidecar_ip,
-                    err.to_string()
-                ))
-            })?,
+            Ipv4Addr::from_str(sidecar_ip)
+                .context("invalid IP address")
+                .map_err(py_err)?,
             recv_port,
         )
-        .map_err(|err| py_err(format!("Failed to create client ({})", err.to_string())))
+        .context("failed to create client")
+        .map_err(py_err)
     }
 
     #[no_mangle]
     fn send_packet_py(&self, dest: GdpName, payload: &[u8]) -> PyResult<()> {
         self.send_packet(dest, payload)
-            .map_err(|err| py_err(format!("Failed to send packet ({})", err.to_string())))
+            .context("failed to send packet")
+            .map_err(py_err)
     }
 }
 
 impl GDPClient {
     pub fn new(sidecar_ip: Ipv4Addr, recv_port: u16) -> Result<Self> {
-        let socket = UdpSocket::bind(SocketAddr::from(([127, 0, 0, 1], recv_port)))?;
-        socket.connect(SocketAddr::new(sidecar_ip.into(), 31415))?;
+        let socket = UdpSocket::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, recv_port)))
+            .context("failed to bind socket")?;
+        socket
+            .set_broadcast(true)
+            .context("failed to set broadcast")?;
+        socket
+            .connect(SocketAddr::new(sidecar_ip.into(), 31415))
+            .context("failed to connect")?;
         Ok(GDPClient { socket })
     }
 

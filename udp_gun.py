@@ -2,9 +2,7 @@ import socket
 
 SOURCE_PORT = 27183
 
-# TARGET_IP = "128.32.37.41"
-TARGET_IP = "10.0.1.1"
-# TARGET_IP = "127.0.1.0"
+TARGET_IP = "192.168.0.255"
 TARGET_PORT = 31415
 DEFAULT_PAYLOAD = b"Not hello"
 
@@ -42,8 +40,8 @@ def build_message(action, key, value, payload=DEFAULT_PAYLOAD):
 
 
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-# s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-s.bind(("", SOURCE_PORT))
+s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+s.bind(("192.168.0.250", SOURCE_PORT))
 
 
 mac_payload = str_to_mac("020000FFFF00")

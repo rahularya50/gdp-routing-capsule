@@ -11,6 +11,14 @@ cores = [1]
     name = "eth1"
     device = "net_tap0"
     args = "iface=mytap"
-    cores = [1]
+    cores = [0]
+    rxd = 1024
+    txd = 1024
+
+[[ports]]
+    name = "loc"
+    device = "net_tap1"
+    args = "iface=controltap"
+    cores = [0]
     rxd = 1024
     txd = 1024
