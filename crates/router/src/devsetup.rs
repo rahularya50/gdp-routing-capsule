@@ -9,7 +9,7 @@ use crate::gdp_pipeline::install_gdp_pipeline;
 use crate::hardcoded_routes::{
     gdp_name_of_index, load_routes, metadata_of_index, private_key_of_index,
 };
-use crate::kvs::Store;
+use crate::kvs::SharedStore;
 use crate::rib::{rib_pipeline, send_rib_query, Routes};
 use crate::ribpayload::RibQuery;
 use crate::runtime::build_runtime;
@@ -19,10 +19,10 @@ use crate::workloads::dev_schedule;
 use crate::Env;
 
 pub fn start_dev_server(config: RuntimeConfig) -> Result<()> {
-    let store1 = Store::new_shared();
-    let store2 = Store::new_shared();
-    let store3 = Store::new_shared();
-    let store4 = Store::new_shared();
+    let store1 = SharedStore::new();
+    let store2 = SharedStore::new();
+    let store3 = SharedStore::new();
+    let store4 = SharedStore::new();
 
     let routes: &'static Routes = Box::leak(Box::new(load_routes(Env::Local)?));
 

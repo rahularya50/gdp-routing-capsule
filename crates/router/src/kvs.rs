@@ -203,7 +203,7 @@ pub struct SharedStore {
 }
 
 impl SharedStore {
-    fn new() -> SharedStore {
+    pub fn new() -> SharedStore {
         SharedStore {
             forwarding_table: SharedCache::new(),
             nack_reply_cache: SharedCache::new(),
@@ -233,14 +233,4 @@ pub struct Store {
     pub nack_reply_cache: SyncCache<GdpName, FwdTableEntry>,
     pub gdp_metadata: SyncCache<GdpName, GdpMeta>,
     pub route_certs: SyncCache<GdpName, Certificate>,
-}
-
-impl Store {
-    pub fn new() -> Self {
-        Self::new_shared().sync()
-    }
-
-    pub fn new_shared() -> SharedStore {
-        SharedStore::new()
-    }
 }

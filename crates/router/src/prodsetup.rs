@@ -9,7 +9,7 @@ use crate::gdp_pipeline::install_gdp_pipeline;
 use crate::hardcoded_routes::{
     gdp_name_of_index, load_routes, metadata_of_index, private_key_of_index,
 };
-use crate::kvs::Store;
+use crate::kvs::SharedStore;
 use crate::rib::{rib_pipeline, send_rib_query, Routes};
 use crate::ribpayload::RibQuery;
 use crate::runtime::build_runtime;
@@ -49,7 +49,7 @@ pub fn start_switch_server(
     let meta = metadata_of_index(gdp_index);
     let private_key = private_key_of_index(gdp_index);
 
-    let store = Store::new_shared();
+    let store = SharedStore::new();
     let (_print_stats, history_map) = make_print_stats();
     let routes: &'static Routes = Box::leak(Box::new(load_routes(env)?));
 
