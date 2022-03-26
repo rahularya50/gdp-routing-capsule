@@ -65,7 +65,7 @@ fn add_forwarding_cert(
     Ok(gdp)
 }
 
-fn forward_gdp(mut gdp: Gdp<DTls<Ipv4>>, dst: Ipv4Addr) -> Result<Either<Gdp<DTls<Ipv4>>>> {
+pub fn forward_gdp(mut gdp: Gdp<DTls<Ipv4>>, dst: Ipv4Addr) -> Result<Either<Gdp<DTls<Ipv4>>>> {
     let dtls = gdp.envelope_mut();
     let udp = dtls.envelope_mut();
     let ipv4 = udp.envelope_mut();
@@ -85,7 +85,7 @@ fn forward_gdp(mut gdp: Gdp<DTls<Ipv4>>, dst: Ipv4Addr) -> Result<Either<Gdp<DTl
     Ok(Either::Keep(gdp))
 }
 
-fn bounce_gdp(mut gdp: Gdp<DTls<Ipv4>>) -> Result<Gdp<DTls<Ipv4>>> {
+pub fn bounce_gdp(mut gdp: Gdp<DTls<Ipv4>>) -> Result<Gdp<DTls<Ipv4>>> {
     if gdp.action()? == GdpAction::Forward {
         gdp.remove_payload()?;
         gdp.set_data_len(0);
@@ -109,13 +109,13 @@ pub fn switch_pipeline(
         GdpAction::Forward => |group| {
             group
             .group_by(
-                move |packet: &Gdp<DTls<Ipv4>>| {
+                move |packet| {
                     check_packet_certificates(gdp_name, packet, &store, None, nic_name, debug)
                 },
                 pipeline! {
                     true => |group| {
                         group
-                        .for_each(move |packet: &Gdp<DTls<Ipv4>>| {
+                        .for_each(move |packet| {
                             // Back-cache the route for 100s to allow NACK to reflect
                             store.nack_reply_cache.put(
                                 packet.src(),
@@ -141,7 +141,7 @@ pub fn switch_pipeline(
                                         let packet = add_forwarding_cert(packet, store, meta, private_key)?;
                                         forward_gdp(packet, ip)
                                     })
-                                }
+                                },
                                 false => |group| {
                                     group
                                     .map(bounce_gdp)
@@ -153,10 +153,10 @@ pub fn switch_pipeline(
                                         }
                                         create_rib_request(Mbuf::new()?, &RibQuery::next_hop_for(packet.dst()), src_mac, src_ip, rib_ip)
                                     })
-                                }
+                                },
                             }
                         )
-                    }
+                    },
                     false => |group| {
                         group
                         .inject(move |packet| {
@@ -170,14 +170,14 @@ pub fn switch_pipeline(
                             create_rib_request(Mbuf::new()?, &RibQuery::metas_for(&unknown_names), src_mac, src_ip, rib_ip)
                         })
                         .map(bounce_gdp)
-                    }
+                    },
                 }
             )
-        }
+        },
         GdpAction::RibReply => |group| {
             group.for_each(move |packet| handle_rib_reply(packet, store, debug))
                 .filter(|_| false)
-        }
+        },
         GdpAction::Nack => |group| {
             group.filter_map(move |packet| {
                 let route = store.nack_reply_cache.get(&packet.src());
@@ -186,10 +186,10 @@ pub fn switch_pipeline(
                     None => Ok(Either::Drop(packet.reset())),
                 }
             })
-        }
+        },
         GdpAction::RibGet => |group| {
             group.filter_map(move |packet| forward_gdp(packet, rib_ip))
-        }
+        },
         _ => |group| {group.filter(|_| false)}
     }
 }

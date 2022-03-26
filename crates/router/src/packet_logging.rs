@@ -1,5 +1,3 @@
-use std::net::Ipv4Addr;
-
 use capsule::batch::{Batch, Disposition};
 use capsule::packets::ip::v4::Ipv4;
 use capsule::packets::{Packet, Udp};
@@ -17,34 +15,25 @@ pub trait LogFail: Batch + Sized {
     fn logfail(self, name: &'static str, details: &'static str, debug: bool) -> Self::OutBatch;
 }
 
-pub trait HasSrcDest {
-    fn src(&self) -> Ipv4Addr;
-    fn dst(&self) -> Ipv4Addr;
+pub trait WrapsUdp: Packet {
+    fn udp(&self) -> &Udp<Ipv4>;
 }
 
-impl HasSrcDest for DTls<Ipv4> {
-    fn src(&self) -> Ipv4Addr {
-        return self.envelope().envelope().src();
-    }
-
-    fn dst(&self) -> Ipv4Addr {
-        return self.envelope().envelope().src();
+impl WrapsUdp for DTls<Ipv4> {
+    fn udp(&self) -> &Udp<Ipv4> {
+        self.envelope()
     }
 }
 
-impl HasSrcDest for Udp<Ipv4> {
-    fn src(&self) -> Ipv4Addr {
-        return self.envelope().src();
-    }
-
-    fn dst(&self) -> Ipv4Addr {
-        return self.envelope().src();
+impl WrapsUdp for Udp<Ipv4> {
+    fn udp(&self) -> &Udp<Ipv4> {
+        self
     }
 }
 
 impl<T: Batch<Item = Gdp<U>> + Sized, U> LogArrive for T
 where
-    U: Packet + HasSrcDest,
+    U: WrapsUdp,
 {
     type OutBatch = impl Batch<Item = Self::Item>;
 
@@ -55,8 +44,8 @@ where
                     "handling packet in {} ({}) : src: {:?}, dst: {:?}, type: {:?}",
                     name,
                     details,
-                    packet.src(),
-                    packet.dst(),
+                    packet.envelope().udp().envelope().src(),
+                    packet.envelope().udp().envelope().dst(),
                     packet.action()?
                 );
             }
