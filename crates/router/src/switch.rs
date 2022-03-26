@@ -1,7 +1,7 @@
 use std::net::Ipv4Addr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use capsule::batch::{Batch, Either};
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
@@ -175,8 +175,14 @@ pub fn switch_pipeline(
             )
         },
         GdpAction::RibReply => |group| {
-            group.for_each(move |packet| handle_rib_reply(packet, store, debug))
-                .filter(|_| false)
+            group
+                .for_each(move |packet| handle_rib_reply(packet, store, debug)) // consume data
+                .filter(move |packet| packet.dst() != gdp_name) // packets intended for a client can continue
+                .filter_map(move |packet| {
+                    // TODO(rahularya) - look up route using RibQuery::next_hop_for if the route is not found
+                    let dest = find_destination(&packet, store).ok_or_else(|| anyhow!("unable to forward RIB reply to client"))?;
+                    forward_gdp(packet, dest)
+                })
         },
         GdpAction::Nack => |group| {
             group.filter_map(move |packet| {

@@ -146,6 +146,8 @@ fn handle_rib_query(
     let out = out.push::<DTls<Ipv4>>()?;
 
     let mut out = out.push::<Gdp<DTls<Ipv4>>>()?;
+    out.set_src(packet.dst());
+    out.set_dst(packet.src());
     out.set_action(GdpAction::RibReply);
 
     let rib_response = generate_rib_response(query, routes, debug);
