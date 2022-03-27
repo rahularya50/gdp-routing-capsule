@@ -1,5 +1,5 @@
 use std::net::Ipv4Addr;
-use std::sync::{Arc, Barrier, RwLock};
+use std::sync::{Arc, RwLock};
 
 use anyhow::{anyhow, Context, Result};
 use capsule::batch::{Batch, Poll};
@@ -11,6 +11,7 @@ use capsule::{Mbuf, PortQueue};
 use gdp_client::{
     ClientCommand, ClientCommands, ClientResponse, ClientResponses, GdpAction, GdpName,
 };
+use tokio::sync::Barrier;
 
 use crate::certificates::{check_packet_certificates, CertDest, GdpMeta, RtCert};
 use crate::dtls::{decrypt_gdp, encrypt_gdp, DTls};
@@ -25,6 +26,7 @@ use crate::packet_ops::{get_payload, set_payload};
 use crate::rib::{create_rib_request, send_rib_query};
 use crate::ribpayload::RibQuery;
 use crate::runtime::build_runtime;
+use crate::schedule::Schedule;
 use crate::switch::{bounce_gdp, bounce_udp, forward_gdp};
 use crate::{pipeline, Env};
 
@@ -239,52 +241,58 @@ pub fn start_sidecar_listener(
 
     build_runtime(config, env)?
         .add_pipeline_to_core(0, move |q| {
-            send_rib_query(
-                q["eth1"].clone(),
-                node_addr,
-                switch_addr,
-                &RibQuery::announce_route(
-                    meta,
-                    RtCert::new_wrapped(
+            Schedule::new("incoming", async move {
+                send_rib_query(
+                    q["eth1"].clone(),
+                    node_addr,
+                    switch_addr,
+                    &RibQuery::announce_route(
                         meta,
-                        private_key,
-                        CertDest::GdpName(gdp_name_of_index(2)),
-                        true,
-                    )
-                    .unwrap(),
-                ),
-                nic_name,
-            );
-            barrier1.wait();
-            incoming_sidecar_pipeline(
-                q["eth1"].clone(),
-                node_addr,
-                switch_addr,
-                gdp_name,
-                nic_name,
-                state,
-                store.sync(),
-                debug,
-            )
-            .logfail(nic_name, "incoming", debug)
-            .send(q["loc"].clone())
+                        RtCert::new_wrapped(
+                            meta,
+                            private_key,
+                            CertDest::GdpName(gdp_name_of_index(2)),
+                            true,
+                        )
+                        .unwrap(),
+                    ),
+                    nic_name,
+                );
+                barrier1.wait().await;
+                incoming_sidecar_pipeline(
+                    q["eth1"].clone(),
+                    node_addr,
+                    switch_addr,
+                    gdp_name,
+                    nic_name,
+                    state,
+                    store.sync(),
+                    debug,
+                )
+                .logfail(nic_name, "incoming", debug)
+                .send(q["loc"].clone())
+                .await
+            })
         })?
         .add_pipeline_to_core(0, move |q| {
-            barrier2.wait();
-            outgoing_sidecar_pipeline(
-                q["loc"].clone(),
-                gdp_name,
-                meta,
-                private_key,
-                nic_name,
-                node_addr,
-                q["eth1"].mac_addr(),
-                switch_addr,
-                state,
-                debug,
-            )
-            .logfail(nic_name, "outgoing", debug)
-            .send(q["eth1"].clone())
+            Schedule::new("outgoing", async move {
+                barrier2.wait().await;
+                outgoing_sidecar_pipeline(
+                    q["loc"].clone(),
+                    gdp_name,
+                    meta,
+                    private_key,
+                    nic_name,
+                    node_addr,
+                    q["eth1"].mac_addr(),
+                    switch_addr,
+                    state,
+                    debug,
+                )
+                .logfail(nic_name, "outgoing", debug)
+                .send(q["eth1"].clone())
+                .await;
+            })
         })?
         .execute()?;
     Ok(())

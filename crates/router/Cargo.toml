@@ -31,7 +31,7 @@ signal-hook = "0.3.10"
 clap = "2.33.3"
 toml = "0.5.8"
 serde = "1.0.130"
-tokio = "=0.2.0-alpha.6"
+tokio = { version = "=0.2.0-alpha.6", features = ["sync"] }
 tokio-executor = { version = "=0.2.0-alpha.6", features = ["current-thread", "threadpool"] }
 tokio-net = { version = "=0.2.0-alpha.6", features = ["signal"] }
 tokio-timer = "=0.3.0-alpha.6"

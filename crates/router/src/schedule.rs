@@ -24,7 +24,7 @@ impl<T: Future<Output = ()>> Pipeline for Schedule<'_, T> {
     }
 
     fn run_once(&mut self) {
-        // todo
+        unimplemented!();
     }
 }
 
