@@ -1,5 +1,5 @@
 use std::net::Ipv4Addr;
-use std::sync::RwLock;
+use std::sync::{Arc, Barrier, RwLock};
 
 use anyhow::{anyhow, Context, Result};
 use capsule::batch::{Batch, Poll};
@@ -234,6 +234,9 @@ pub fn start_sidecar_listener(
 
     let store = SharedStore::new();
 
+    let barrier1 = Arc::new(Barrier::new(2));
+    let barrier2 = barrier1.clone();
+
     build_runtime(config, env)?
         .add_pipeline_to_core(0, move |q| {
             send_rib_query(
@@ -252,6 +255,7 @@ pub fn start_sidecar_listener(
                 ),
                 nic_name,
             );
+            barrier1.wait();
             incoming_sidecar_pipeline(
                 q["eth1"].clone(),
                 node_addr,
@@ -266,6 +270,7 @@ pub fn start_sidecar_listener(
             .send(q["loc"].clone())
         })?
         .add_pipeline_to_core(0, move |q| {
+            barrier2.wait();
             outgoing_sidecar_pipeline(
                 q["loc"].clone(),
                 gdp_name,
