@@ -41,4 +41,16 @@ impl CGdpClient {
             Err(_) => -1,
         }
     }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn recv_from(&mut self, src: *mut GdpName, buf: *mut *mut u8) -> i8 {
+        self.0
+            .recv_from()
+            .map(|(name, mut payload)| {
+                *src = name;
+                *buf = payload.as_mut_ptr();
+                0
+            })
+            .unwrap_or(-1)
+    }
 }

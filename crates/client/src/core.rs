@@ -16,6 +16,7 @@ unsafe fn any_as_u8_slice<T: Sized>(p: &T) -> &[u8] {
 
 pub struct GdpClient {
     socket: UdpSocket,
+    port: u16,
 }
 
 impl GdpClient {
@@ -28,37 +29,20 @@ impl GdpClient {
         socket
             .connect(SocketAddr::new(sidecar_ip.into(), 31415))
             .context("failed to connect")?;
-        let client = GdpClient { socket };
+        let mut client = GdpClient { socket, port: 0 };
         client.listen_on_port(recv_port)?;
-        let (_header, payload) = loop {
+        let payload = loop {
             let (header, payload) = client.recv_with_header()?;
             let action: GdpAction = header.action.try_into()?;
             if action != GdpAction::Control {
+                // drop data packets received during setup
                 continue;
             }
-            break (header, payload);
+            break payload;
         };
-        let ClientResponses { messages } = bincode::deserialize(&*payload)?;
-        for msg in messages {
-            match msg {
-                ClientResponse::PortSet { port } => {
-                    ensure!(port == recv_port, "incorrect port set")
-                }
-                ClientResponse::Error { msg } => bail!(msg.into_owned()),
-            }
-        }
+        client.process_control_payload(&payload)?;
+        ensure!(recv_port == client.port, "incorrect port set in sidecar");
         Ok(client)
-    }
-
-    fn send_header_and_data(&self, header: &GdpHeader, data: &[u8]) -> Result<()> {
-        let mut buffer = vec![];
-
-        buffer.extend(unsafe { any_as_u8_slice(header) });
-        buffer.extend(data);
-
-        let len = self.socket.send(&buffer)?;
-        ensure!(buffer.len() == len, "sent only {} bytes", len);
-        Ok(())
     }
 
     pub fn send_packet(&self, dest: GdpName, payload: &[u8]) -> Result<()> {
@@ -75,19 +59,15 @@ impl GdpClient {
         self.send_header_and_data(&header, payload)
     }
 
-    fn listen_on_port(&self, port: u16) -> Result<()> {
-        let header = GdpHeader {
-            field: MAGIC_NUMBERS.into(),
-            action: GdpAction::Control as u8,
-            ..Default::default()
-        };
-
-        let data = bincode::serialize(&ClientCommands {
-            messages: vec![ClientCommand::SetPort { port }],
-        })
-        .context("failed to serialize commands for transmission")?;
-
-        self.send_header_and_data(&header, &data)
+    pub fn recv_from(&mut self) -> Result<(GdpName, Box<[u8]>)> {
+        loop {
+            let (header, payload) = self.recv_with_header()?;
+            match GdpAction::try_from(header.action)? {
+                GdpAction::Control => self.process_control_payload(&payload)?,
+                GdpAction::Forward => return Ok((header.src, payload)),
+                action => bail!("unexpected packet action type: {:?}", action),
+            };
+        }
     }
 
     fn recv_with_header(&self) -> Result<(GdpHeader, Box<[u8]>)> {
@@ -106,5 +86,42 @@ impl GdpClient {
             let header: GdpHeader = unsafe { transmute(header) };
             return Ok((header, Box::new(payload).to_vec().into_boxed_slice()));
         }
+    }
+
+    fn send_header_and_data(&self, header: &GdpHeader, data: &[u8]) -> Result<()> {
+        let mut buffer = vec![];
+
+        buffer.extend(unsafe { any_as_u8_slice(header) });
+        buffer.extend(data);
+
+        let len = self.socket.send(&buffer)?;
+        ensure!(buffer.len() == len, "sent only {} bytes", len);
+        Ok(())
+    }
+
+    fn listen_on_port(&self, port: u16) -> Result<()> {
+        let header = GdpHeader {
+            field: MAGIC_NUMBERS.into(),
+            action: GdpAction::Control as u8,
+            ..Default::default()
+        };
+
+        let data = bincode::serialize(&ClientCommands {
+            messages: vec![ClientCommand::SetPort { port }],
+        })
+        .context("failed to serialize commands for transmission")?;
+
+        self.send_header_and_data(&header, &data)
+    }
+
+    fn process_control_payload(&mut self, payload: &[u8]) -> Result<()> {
+        let ClientResponses { messages } = bincode::deserialize(&*payload)?;
+        for msg in messages {
+            match msg {
+                ClientResponse::PortSet { port } => self.port = port,
+                ClientResponse::Error { msg } => bail!(msg.into_owned()),
+            }
+        }
+        Ok(())
     }
 }

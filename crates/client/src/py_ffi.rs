@@ -42,6 +42,14 @@ impl PyGdpClient {
             .context("failed to send packet")
             .map_err(py_err)
     }
+
+    fn recv_from(&mut self) -> PyResult<(GdpName, Vec<u8>)> {
+        self.0
+            .recv_from()
+            .map(|(src, payload)| (src, payload.into_vec()))
+            .context("failed to receive data packet")
+            .map_err(py_err)
+    }
 }
 
 #[pymodule]
