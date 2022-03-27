@@ -16,6 +16,7 @@ unsafe fn any_as_u8_slice<T: Sized>(p: &T) -> &[u8] {
 
 pub struct GdpClient {
     socket: UdpSocket,
+    sidecar_addr: SocketAddr,
     port: u16,
 }
 
@@ -26,10 +27,7 @@ impl GdpClient {
         socket
             .set_broadcast(true)
             .context("failed to set broadcast")?;
-        socket
-            .connect(SocketAddr::new(sidecar_ip.into(), 31415))
-            .context("failed to connect")?;
-        let mut client = GdpClient { socket, port: 0 };
+        let mut client = GdpClient { socket, port: 0, sidecar_addr: SocketAddr::new(sidecar_ip.into(), 25000) };
         client.listen_on_port(recv_port)?;
         let payload = loop {
             let (header, payload) = client.recv_with_header()?;
@@ -94,7 +92,7 @@ impl GdpClient {
         buffer.extend(unsafe { any_as_u8_slice(header) });
         buffer.extend(data);
 
-        let len = self.socket.send(&buffer)?;
+        let len = self.socket.send_to(&buffer, self.sidecar_addr)?;
         ensure!(buffer.len() == len, "sent only {} bytes", len);
         Ok(())
     }

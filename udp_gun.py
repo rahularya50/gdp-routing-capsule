@@ -2,8 +2,8 @@ import socket
 
 SOURCE_PORT = 27183
 
-TARGET_IP = "192.168.0.255"
-TARGET_PORT = 31415
+TARGET_IP = "172.18.0.255"
+TARGET_PORT = 25000
 DEFAULT_PAYLOAD = b"Not hello"
 
 MAGIC_BYTES = b"\x26\x2a"
@@ -41,18 +41,26 @@ def build_message(action, key, value, payload=DEFAULT_PAYLOAD):
 
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-s.bind(("192.168.0.250", SOURCE_PORT))
+# s.bind(("172.17.0.1", SOURCE_PORT))
+s.bind(("", SOURCE_PORT))
+# s.bind(("172.18.0.0", SOURCE_PORT))
 
 
 mac_payload = str_to_mac("020000FFFF00")
 ip_payload = str_to_ip("10.100.1.10")
 forge_payload = mac_payload + ip_payload
+
+forge_payload = b"\x26\x2a" + b"\x07" * 100
+# print(forge_payload)
 s.sendto(
-    build_message(FPING, KEY, VALUE, payload=forge_payload), (TARGET_IP, TARGET_PORT)
+#    build_message(FPING, KEY, VALUE, payload=forge_payload),
+    forge_payload, (TARGET_IP, TARGET_PORT)
 )
 
 # s.sendto(build_message(GET, KEY, VALUE), (TARGET_IP, TARGET_PORT))
-# received_data, origin = s.recvfrom(1024)
+received_data, origin = s.recvfrom(1024)
+
+print("received ... something?")
 
 # magic, action, key, value, payload = (
 #     received_data[:2],

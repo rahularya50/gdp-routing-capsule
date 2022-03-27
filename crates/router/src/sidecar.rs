@@ -202,6 +202,10 @@ fn outgoing_sidecar_pipeline(
                         .map(move |mut packet| {
                             let udp = packet.envelope_mut().envelope_mut();
                             bounce_udp(udp);
+                            // TODO(rahularya) - stop hardcoding IPs
+                            // needed since otherwise we'd be using the broadcast IP
+                            // which may cause the reply to be dropped
+                            udp.set_src_ip(Ipv4Addr::new(172, 18, 0, 254).into())?;
                             let ethernet = udp.envelope_mut().envelope_mut();
                             ethernet.set_src(loc_mac_addr);
                             let mut udp = packet.deparse().remove()?;
@@ -274,7 +278,7 @@ pub fn start_sidecar_listener(
                 .await
             })
         })?
-        .add_pipeline_to_core(0, move |q| {
+        .add_pipeline_to_core(1, move |q| {
             Schedule::new("outgoing", async move {
                 barrier2.wait().await;
                 outgoing_sidecar_pipeline(
