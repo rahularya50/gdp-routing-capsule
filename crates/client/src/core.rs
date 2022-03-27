@@ -1,9 +1,8 @@
 use std::mem::{size_of, transmute};
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::ptr::slice_from_raw_parts;
-use std::str::FromStr;
 
-use anyhow::{anyhow, bail, ensure, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 
 use crate::{
     ClientCommand, ClientCommands, ClientResponse, ClientResponses, GdpAction, GdpHeader, GdpName,
@@ -21,13 +20,8 @@ pub struct GdpClient {
 
 impl GdpClient {
     pub fn new(sidecar_ip: Ipv4Addr, recv_port: u16) -> Result<Self> {
-        println!("startup!");
-        let socket = UdpSocket::bind(SocketAddr::from((
-            // Ipv4Addr::from_str("192.168.0.250")?,
-            Ipv4Addr::UNSPECIFIED,
-            recv_port,
-        )))
-        .context("failed to bind socket")?;
+        let socket = UdpSocket::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, recv_port)))
+            .context("failed to bind socket")?;
         socket
             .set_broadcast(true)
             .context("failed to set broadcast")?;
@@ -39,7 +33,6 @@ impl GdpClient {
         let (_header, payload) = loop {
             let (header, payload) = client.recv_with_header()?;
             let action: GdpAction = header.action.try_into()?;
-            println!("action: {:?}", action);
             if action != GdpAction::Control {
                 continue;
             }
@@ -101,23 +94,16 @@ impl GdpClient {
         let mut buf = [0u8; 1 << 16];
         loop {
             let (size, _) = self.socket.recv_from(&mut buf)?;
-            println!("received with size {size}!");
             ensure!(size > 0, "socket closed unexpectedly");
             // looks like a GDP packet?
-            // if u16::from_be_bytes([buf[0], buf[1]]) != MAGIC_NUMBERS {
-            //     println!("magic number mismatch: {:x?} {:x?}!", buf[0], buf[1]);
-            //     continue;
-            // }
-            if size < size_of::<GdpHeader>() {
-                println!("size smaller than {}", size_of::<GdpHeader>());
+            if u16::from_be_bytes([buf[0], buf[1]]) != MAGIC_NUMBERS
+                || size < size_of::<GdpHeader>()
+            {
                 continue;
             }
-            // buf[..size].reverse();
-            println!("packet: {:?}", &buf[..size]);
             let (header, payload) = buf.split_at(size_of::<GdpHeader>());
             let header: [u8; size_of::<GdpHeader>()] = header.try_into().unwrap();
             let header: GdpHeader = unsafe { transmute(header) };
-            println!("magic numbers: {:x?}", header.field);
             return Ok((header, Box::new(payload).to_vec().into_boxed_slice()));
         }
     }
