@@ -2,7 +2,7 @@ use std::net::Ipv4Addr;
 use std::sync::RwLock;
 
 use anyhow::{anyhow, Context, Result};
-use capsule::batch::{Batch, Disposition, Poll};
+use capsule::batch::{Batch, Poll};
 use capsule::config::RuntimeConfig;
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
@@ -11,7 +11,6 @@ use capsule::{Mbuf, PortQueue};
 use gdp_client::{
     ClientCommand, ClientCommands, ClientResponse, ClientResponses, GdpAction, GdpName,
 };
-use tracing::warn;
 
 use crate::certificates::{check_packet_certificates, CertDest, GdpMeta, RtCert};
 use crate::dtls::{decrypt_gdp, encrypt_gdp, DTls};
@@ -26,7 +25,7 @@ use crate::packet_ops::{get_payload, set_payload};
 use crate::rib::{create_rib_request, send_rib_query};
 use crate::ribpayload::RibQuery;
 use crate::runtime::build_runtime;
-use crate::switch::{bounce_gdp, forward_gdp};
+use crate::switch::{bounce_gdp, bounce_udp, forward_gdp};
 use crate::{pipeline, Env};
 
 fn execute_command(
@@ -121,7 +120,8 @@ fn incoming_sidecar_pipeline(
                 },
             },
         )
-        .map(|packet| Ok(packet.deparse()))
+        // drop dTLS header before forwarding to library
+        .map(|packet| packet.deparse().remove())
 }
 
 fn outgoing_sidecar_pipeline(
@@ -146,16 +146,10 @@ fn outgoing_sidecar_pipeline(
     .unwrap()];
 
     let certificates = CertificateBlock { certificates };
+    let loc_mac_addr = q.mac_addr();
 
     Poll::new(q.clone())
         .map(|packet| packet.parse::<Ethernet>())
-        .inspect(move |disp| {
-            if debug {
-                if let Disposition::Act(p) = disp {
-                    warn!(?p)
-                }
-            }
-        })
         .map(|packet| packet.parse::<Ipv4>())
         .map(|packet| packet.parse::<Udp<Ipv4>>())
         .map(|packet| packet.push::<DTls<Ipv4>>())
@@ -203,8 +197,17 @@ fn outgoing_sidecar_pipeline(
                             set_payload(&mut packet, &response)?;
                             Ok(packet)
                         })
-                        .map(bounce_gdp)
+                        .map(move |mut packet| {
+                            let udp = packet.envelope_mut().envelope_mut();
+                            bounce_udp(udp);
+                            let ethernet = udp.envelope_mut().envelope_mut();
+                            ethernet.set_src(loc_mac_addr);
+                            let mut udp = packet.deparse().remove()?;
+                            udp.reconcile_all();
+                            Ok(udp)
+                        })
                         .emit(q) // send out of TAP, not bound NIC
+                        .replace(|_| unreachable!())
                 },
             },
         )
@@ -214,15 +217,16 @@ fn outgoing_sidecar_pipeline(
 
 pub fn start_sidecar_listener(
     config: RuntimeConfig,
+    gdp_index: u8,
     node_addr: Ipv4Addr,
     switch_addr: Ipv4Addr,
     nic_name: &'static str,
     debug: bool,
     env: Env,
 ) -> Result<()> {
-    let gdp_name = gdp_name_of_index(1);
-    let meta = metadata_of_index(1);
-    let private_key = private_key_of_index(1);
+    let gdp_name = gdp_name_of_index(gdp_index);
+    let meta = metadata_of_index(gdp_index);
+    let private_key = private_key_of_index(gdp_index);
 
     let state: &SidecarState = Box::leak(Box::new(SidecarState {
         listen_addr: RwLock::new((MacAddr::broadcast(), Ipv4Addr::UNSPECIFIED, 31415)),

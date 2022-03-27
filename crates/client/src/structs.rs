@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use derivative::Derivative;
 use strum_macros::EnumIter;
+
 pub const MAGIC_NUMBERS: u16 = u16::from_be_bytes([0x26, 0x2a]);
 
 pub type GdpName = [u8; 32];
@@ -43,6 +44,7 @@ impl TryFrom<u8> for GdpAction {
 
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, Default)]
+#[repr(C, packed)]
 pub struct u16be(u16);
 
 impl From<u16> for u16be {
@@ -59,7 +61,7 @@ impl From<u16be> for u16 {
 
 #[derive(Clone, Copy, Debug, Derivative)]
 #[derivative(Default)]
-#[repr(C)]
+#[repr(C, packed)]
 pub struct GdpHeader {
     pub field: u16be, // nonce used to identify GDP packets
     #[derivative(Default(value = "64"))]

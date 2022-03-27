@@ -29,6 +29,7 @@ mod hardcoded_routes;
 mod inject;
 mod kvs;
 mod packet_logging;
+mod packet_ops;
 mod pipeline;
 mod prodsetup;
 mod rib;
@@ -39,7 +40,6 @@ mod sidecar;
 mod statistics;
 mod switch;
 mod workloads;
-mod packet_ops;
 
 arg_enum! {
     #[derive(PartialEq)]
@@ -112,8 +112,14 @@ fn main() -> Result<()> {
         Mode::Router => start_rib_server(config, env, ip_addr?, use_default),
         Mode::Switch => start_switch_server(config, env, gdp_name?, ip_addr?),
         Mode::Client => start_client_server(config, ip_addr?, switch_addr?, env),
-        Mode::Sidecar => {
-            start_sidecar_listener(config, ip_addr?, switch_addr?, "sidecar", debug, env)
-        }
+        Mode::Sidecar => start_sidecar_listener(
+            config,
+            gdp_name?,
+            ip_addr?,
+            switch_addr?,
+            "sidecar",
+            debug,
+            env,
+        ),
     }
 }

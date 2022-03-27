@@ -24,7 +24,7 @@ fn find_destination(gdp: &Gdp<DTls<Ipv4>>, store: Store) -> Option<Ipv4Addr> {
     store.forwarding_table.get(&gdp.dst()).map(|x| x.ip)
 }
 
-fn bounce_udp(udp: &mut Udp<Ipv4>) {
+pub fn bounce_udp(udp: &mut Udp<Ipv4>) {
     let udp_src_port = udp.dst_port();
     let udp_dst_port = udp.src_port();
     udp.set_src_port(udp_src_port);

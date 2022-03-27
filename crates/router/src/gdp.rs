@@ -114,7 +114,8 @@ impl<T: Packet> Gdp<T> {
 
 impl fmt::Debug for Gdp<DTls<Ipv4>> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let ipv4 = self.envelope().envelope().envelope();
+        let udp = self.envelope().envelope();
+        let ipv4 = udp.envelope();
         let ethernet = ipv4.envelope();
         f.debug_struct("gdp")
             .field("ttl", &self.ttl())
@@ -122,6 +123,7 @@ impl fmt::Debug for Gdp<DTls<Ipv4>> {
             .field("src", &self.src())
             .field("dst", &self.dst())
             .field("data_len", &self.data_len())
+            .field("udp_frame", udp)
             .field("ipv4_frame", ipv4)
             .field("eth_frame", ethernet)
             .finish()
