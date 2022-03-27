@@ -27,7 +27,11 @@ impl GdpClient {
         socket
             .set_broadcast(true)
             .context("failed to set broadcast")?;
-        let mut client = GdpClient { socket, port: 0, sidecar_addr: SocketAddr::new(sidecar_ip.into(), 25000) };
+        let mut client = GdpClient {
+            socket,
+            port: 0,
+            sidecar_addr: SocketAddr::new(sidecar_ip.into(), 25000),
+        };
         client.listen_on_port(recv_port)?;
         let payload = loop {
             let (header, payload) = client.recv_with_header()?;
