@@ -23,7 +23,7 @@ use crate::hardcoded_routes::{
 use crate::kvs::{SharedStore, Store};
 use crate::packet_logging::{LogArrive, LogFail};
 use crate::packet_ops::{get_payload, set_payload};
-use crate::rib::{create_rib_request, send_rib_query, RIB_PORT};
+use crate::rib::{create_rib_request, send_rib_query, RIB_PORT, handle_rib_reply};
 use crate::ribpayload::RibQuery;
 use crate::runtime::build_runtime;
 use crate::schedule::Schedule;
@@ -123,6 +123,11 @@ fn incoming_sidecar_pipeline(
                             }
                         })
                 },
+                GdpAction::RibReply => |group| {
+                    group
+                        .for_each(move |packet| handle_rib_reply(packet, store, debug))
+                        .filter(move |packet| false)
+                }
             },
         )
         // drop dTLS header before forwarding to library
@@ -254,7 +259,7 @@ pub fn start_sidecar_listener(
                 send_rib_query(
                     q["eth1"].clone(),
                     node_addr,
-                    gdp_name_of_index(2),
+                    gdp_name,
                     switch_addr,
                     &RibQuery::announce_routes(
                         meta,
