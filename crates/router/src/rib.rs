@@ -53,6 +53,7 @@ pub fn create_rib_request(
     query: &RibQuery,
     src_mac: MacAddr,
     src_ip: Ipv4Addr,
+    src_gdp_name: GdpName,
     dst_ip: Ipv4Addr,
 ) -> Result<Gdp<DTls<Ipv4>>> {
     let mut message = message.push::<Ethernet>()?;
@@ -72,6 +73,7 @@ pub fn create_rib_request(
     let mut message = message.push::<Gdp<DTls<Ipv4>>>()?;
 
     message.set_action(GdpAction::RibGet);
+    message.set_src(src_gdp_name);
 
     let content = bincode::serialize(query).unwrap();
     let offset = message.payload_offset();
@@ -87,6 +89,7 @@ pub fn create_rib_request(
 pub fn send_rib_query(
     q: PortQueue,
     src_ip: Ipv4Addr,
+    src_gdp_name: GdpName,
     dst_ip: Ipv4Addr,
     query: &RibQuery,
     nic_name: &str,
@@ -94,7 +97,7 @@ pub fn send_rib_query(
     let src_mac = q.mac_addr();
     println!("Sending initial RIB announcement from {}", nic_name);
     batch::poll_fn(|| Mbuf::alloc_bulk(1).unwrap())
-        .map(move |packet| create_rib_request(packet, query, src_mac, src_ip, dst_ip))
+        .map(move |packet| create_rib_request(packet, query, src_mac, src_ip, src_gdp_name, dst_ip))
         .map(|packet| Ok(packet.deparse()))
         .map(encrypt_gdp)
         .send(q)

@@ -151,7 +151,7 @@ pub fn switch_pipeline(
                                         if debug {
                                             println!("{} querying RIB for destination {:?}", nic_name, packet.dst());
                                         }
-                                        create_rib_request(Mbuf::new()?, &RibQuery::next_hop_for(packet.dst()), src_mac, src_ip, rib_ip)
+                                        create_rib_request(Mbuf::new()?, &RibQuery::next_hop_for(packet.dst()), src_mac, src_ip, gdp_name, rib_ip)
                                     })
                                 },
                             }
@@ -167,7 +167,7 @@ pub fn switch_pipeline(
                             if debug {
                                 println!("{} querying RIB for metas {:?}", nic_name, packet.dst());
                             }
-                            create_rib_request(Mbuf::new()?, &RibQuery::metas_for(&unknown_names), src_mac, src_ip, rib_ip)
+                            create_rib_request(Mbuf::new()?, &RibQuery::metas_for(&unknown_names), src_mac, src_ip, gdp_name, rib_ip)
                         })
                         .map(bounce_gdp)
                     },

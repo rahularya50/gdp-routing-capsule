@@ -152,6 +152,7 @@ pub fn dev_schedule(q: PortQueue, name: &str) -> impl Pipeline + '_ {
     send_rib_query(
         q.clone(),
         src_ip,
+        gdp_name_of_index(1),
         switch_ip,
         &RibQuery::announce_route(
             meta,
@@ -256,6 +257,7 @@ pub fn start_client_server(
             send_rib_query(
                 q.clone(),
                 node_addr,
+                gdp_name_of_index(1),
                 switch_addr,
                 &RibQuery::announce_route(
                     meta,

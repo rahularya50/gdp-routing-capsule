@@ -113,7 +113,7 @@ fn incoming_sidecar_pipeline(
                                         if debug {
                                             println!("{} querying RIB for metas {:?}", name, packet.dst());
                                         }
-                                        create_rib_request(Mbuf::new()?, &RibQuery::metas_for(&unknown_names), src_mac, src_ip, switch_ip)
+                                        create_rib_request(Mbuf::new()?, &RibQuery::metas_for(&unknown_names), src_mac, src_ip, gdp_name, switch_ip)
                                     })
                                     .map(bounce_gdp)
                                     .emit(q)
@@ -249,6 +249,7 @@ pub fn start_sidecar_listener(
                 send_rib_query(
                     q["eth1"].clone(),
                     node_addr,
+                    gdp_name_of_index(2),
                     switch_addr,
                     &RibQuery::announce_route(
                         meta,

@@ -57,6 +57,7 @@ pub fn start_dev_server(config: RuntimeConfig) -> Result<()> {
             send_rib_query(
                 q.clone(),
                 node_addr,
+                gdp_name_of_index(2),
                 rib_ip,
                 &RibQuery::announce_route(
                     meta,
@@ -91,6 +92,7 @@ pub fn start_dev_server(config: RuntimeConfig) -> Result<()> {
             send_rib_query(
                 q.clone(),
                 node_addr,
+                gdp_name_of_index(3),
                 rib_ip,
                 &RibQuery::announce_route(
                     meta,

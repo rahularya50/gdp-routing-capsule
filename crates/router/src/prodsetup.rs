@@ -63,6 +63,7 @@ pub fn start_switch_server(
             send_rib_query(
                 q.clone(),
                 node_addr,
+                gdp_name,
                 routes.rib.ip,
                 &RibQuery::announce_route(meta, cert.clone()),
                 "prod",
