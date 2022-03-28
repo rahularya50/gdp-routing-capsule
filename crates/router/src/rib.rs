@@ -16,6 +16,7 @@ use crate::dtls::{encrypt_gdp, DTls};
 use crate::gdp::Gdp;
 use crate::hardcoded_routes::WithBroadcast;
 use crate::kvs::Store;
+use crate::packet_ops::get_payload;
 use crate::ribpayload::{generate_rib_response, process_rib_response, RibQuery, RibResponse};
 use crate::{pipeline, GdpPipeline};
 
@@ -110,7 +111,7 @@ pub fn handle_rib_reply(packet: &Gdp<DTls<Ipv4>>, store: Store, debug: bool) -> 
         .read_data_slice(packet.payload_offset(), packet.payload_len())?;
     let data_slice_ref = unsafe { data_slice.as_ref() };
     let response: RibResponse = bincode::deserialize(data_slice_ref)?;
-    process_rib_response(response, &store, debug)?;
+    process_rib_response(response, store, debug)?;
     Ok(())
 }
 
@@ -121,12 +122,7 @@ fn handle_rib_query(
     _use_default: bool,
     debug: bool,
 ) -> Result<Gdp<DTls<Ipv4>>> {
-    // read the query payload
-    let data_slice = packet
-        .mbuf()
-        .read_data_slice(packet.payload_offset(), packet.payload_len())?;
-    let data_slice_ref = unsafe { data_slice.as_ref() };
-    let query: RibQuery = bincode::deserialize(data_slice_ref)?;
+    let query: RibQuery = bincode::deserialize(get_payload(packet)?)?;
 
     let dtls = packet.envelope();
     let udp = dtls.envelope();

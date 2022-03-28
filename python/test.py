@@ -1,5 +1,8 @@
 import gdp_client
 
+gdp_name_1 = [250, 77, 134, 195, 181, 81, 170, 108, 215, 195, 117, 157, 4, 12, 3, 126, 242, 198, 55, 159, 1, 136, 15, 69, 60, 126, 245, 55, 68, 6, 228, 190]
+gdp_name_2 = [227, 193, 179, 98, 192, 223, 54, 246, 179, 112, 184, 177, 71, 155, 103, 218, 217, 99, 146, 178, 68, 7, 68, 224, 95, 223, 127, 24, 131, 191, 243, 13]
+
 client = gdp_client.PyGdpClient("172.18.0.255", 27183)
-client.send_packet([0] * 32, b"this is some data")
+client.send_packet(gdp_name_2, b"this is some data")
 # client.recv_from()

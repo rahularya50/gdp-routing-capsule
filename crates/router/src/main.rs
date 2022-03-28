@@ -1,5 +1,6 @@
 #![feature(array_methods)]
 #![feature(type_alias_impl_trait)]
+#![feature(drain_filter)]
 
 use std::fs;
 use std::net::Ipv4Addr;

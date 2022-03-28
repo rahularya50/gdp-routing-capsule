@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::iter::empty;
 
@@ -12,11 +13,11 @@ use crate::FwdTableEntry;
 
 #[derive(Deserialize, Serialize)]
 pub struct RibQuery {
-    metas_for_names: Vec<GdpName>,
-    ips_for_names: Vec<GdpName>,
-    next_hop_for_names: Vec<GdpName>,
-    new_nodes: Vec<GdpMeta>,
-    new_certs: Vec<Certificate>,
+    pub metas_for_names: Vec<GdpName>,
+    pub ips_for_names: Vec<GdpName>,
+    pub next_hop_for_names: Vec<GdpName>,
+    pub new_nodes: Vec<GdpMeta>,
+    pub new_certs: Vec<Certificate>,
 }
 
 impl RibQuery {
@@ -41,12 +42,16 @@ impl RibQuery {
     }
 
     pub fn announce_route(meta: GdpMeta, cert: Certificate) -> Self {
+        Self::announce_routes(meta, vec![cert].into())
+    }
+
+    pub fn announce_routes(meta: GdpMeta, certs: Cow<[Certificate]>) -> Self {
         RibQuery {
             metas_for_names: Vec::new(),
             ips_for_names: Vec::new(),
             next_hop_for_names: Vec::new(),
             new_nodes: vec![meta],
-            new_certs: vec![cert],
+            new_certs: certs.into_owned(),
         }
     }
 }
@@ -139,33 +144,54 @@ pub fn generate_rib_response(query: RibQuery, routes: &Routes, debug: bool) -> R
     RibResponse { metas, certs }
 }
 
-pub fn process_rib_response(response: RibResponse, store: &Store, debug: bool) -> Result<()> {
+pub fn process_rib_response(response: RibResponse, store: Store, debug: bool) -> Result<()> {
     if debug {
         println!("{:?}", response);
     }
-    for meta in response.metas {
-        store.gdp_metadata.put(meta.hash(), meta);
+    process_rib_data(&response.metas, &response.certs, None, store, debug)
+}
+
+pub fn process_rib_data<'a>(
+    metas: &[GdpMeta],
+    certs: &'a [Certificate],
+    mut out_certs: Option<&mut Vec<&'a Certificate>>,
+    store: Store,
+    debug: bool,
+) -> Result<()> {
+    for meta in metas {
+        store.gdp_metadata.put(meta.hash(), *meta);
     }
-    for cert in response.certs {
+    for cert in certs {
         let owner = cert.contents.owner();
         let meta = store.gdp_metadata.get_unchecked(owner);
         if let Some(meta) = meta {
             cert.verify(&meta)?;
-            match cert.contents {
+            match &cert.contents {
                 CertContents::RtCert(RtCert {
                     base,
                     proxy,
                     expiration_time,
                     ..
                 }) => match proxy {
-                    CertDest::GdpName(_gdp_name) => (),
+                    CertDest::GdpName(gdp_name) => {
+                        store.next_hops.put(
+                            *base,
+                            FwdTableEntry {
+                                val: *gdp_name,
+                                expiration_time: *expiration_time,
+                            },
+                        );
+                        if let Some(ref mut out_certs) = out_certs {
+                            out_certs.push(cert);
+                        }
+                    }
                     CertDest::IpAddr(ip_addr) => {
                         if debug {
                             println!("Inserting mapping in switch to {:?}", ip_addr);
                         }
                         store
                             .forwarding_table
-                            .put(base, FwdTableEntry::new(ip_addr, expiration_time))
+                            .put(*base, FwdTableEntry::new(*ip_addr, *expiration_time))
                     }
                 },
             }

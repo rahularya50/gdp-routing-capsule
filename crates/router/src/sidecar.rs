@@ -253,15 +253,25 @@ pub fn start_sidecar_listener(
                     node_addr,
                     gdp_name_of_index(2),
                     switch_addr,
-                    &RibQuery::announce_route(
+                    &RibQuery::announce_routes(
                         meta,
-                        RtCert::new_wrapped(
-                            meta,
-                            private_key,
-                            CertDest::GdpName(gdp_name_of_index(2)),
-                            true,
-                        )
-                        .unwrap(),
+                        vec![
+                            RtCert::new_wrapped(
+                                meta,
+                                private_key,
+                                CertDest::GdpName(gdp_name_of_index(2)),
+                                true,
+                            )
+                            .unwrap(),
+                            RtCert::new_wrapped(
+                                meta,
+                                private_key,
+                                CertDest::IpAddr(node_addr),
+                                true,
+                            )
+                            .unwrap(),
+                        ]
+                        .into(),
                     ),
                     nic_name,
                 );

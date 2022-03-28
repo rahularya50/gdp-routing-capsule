@@ -1,7 +1,7 @@
 use std::net::Ipv4Addr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{anyhow, Result};
+use anyhow::{bail, Result};
 use capsule::batch::{Batch, Either};
 use capsule::net::MacAddr;
 use capsule::packets::ip::v4::Ipv4;
@@ -15,13 +15,25 @@ use crate::gdp::{CertificateBlock, Gdp};
 use crate::gdpbatch::GdpBatch;
 use crate::hardcoded_routes::WithBroadcast;
 use crate::kvs::Store;
+use crate::packet_ops::{get_payload, set_payload};
 use crate::pipeline::GdpPipeline;
 use crate::rib::{create_rib_request, handle_rib_reply};
-use crate::ribpayload::RibQuery;
+use crate::ribpayload::{process_rib_data, RibQuery};
 use crate::{pipeline, FwdTableEntry};
 
-fn find_destination(gdp: &Gdp<DTls<Ipv4>>, store: Store) -> Option<Ipv4Addr> {
-    store.forwarding_table.get(&gdp.dst()).map(|x| x.ip)
+enum DestResult {
+    Hit(Ipv4Addr),
+    Miss(GdpName),
+}
+
+fn find_destination(dst: GdpName, store: Store) -> DestResult {
+    match store.forwarding_table.get(&dst) {
+        Some(FwdTableEntry { val: ip, .. }) => DestResult::Hit(ip),
+        None => match store.next_hops.get(&dst) {
+            Some(FwdTableEntry { val: proxy, .. }) => find_destination(proxy, store),
+            None => DestResult::Miss(dst),
+        },
+    }
 }
 
 pub fn bounce_udp(udp: &mut Udp<Ipv4>) {
@@ -44,11 +56,11 @@ pub fn bounce_udp(udp: &mut Udp<Ipv4>) {
 }
 
 fn add_forwarding_cert(
-    mut gdp: Gdp<DTls<Ipv4>>,
+    gdp: &mut Gdp<DTls<Ipv4>>,
     store: Store,
     meta: GdpMeta,
     private_key: [u8; 32],
-) -> Result<Gdp<DTls<Ipv4>>> {
+) -> Result<()> {
     let CertificateBlock { mut certificates } = gdp.get_certs()?;
 
     let cert = match store.route_certs.get(&gdp.dst()) {
@@ -62,7 +74,25 @@ fn add_forwarding_cert(
 
     certificates.push(cert);
     gdp.set_certs(&CertificateBlock { certificates })?;
-    Ok(gdp)
+    Ok(())
+}
+
+fn intercept_rib_insertion(packet: &mut Gdp<DTls<Ipv4>>, store: Store, debug: bool) -> Result<()> {
+    let mut query: RibQuery = bincode::deserialize(get_payload(packet)?)?;
+
+    let mut proxy_certs = vec![];
+    process_rib_data(
+        &query.new_nodes,
+        &query.new_certs,
+        Some(&mut proxy_certs),
+        store,
+        debug,
+    )?;
+    query.new_certs = proxy_certs.into_iter().cloned().collect();
+
+    set_payload(packet, &bincode::serialize(&query)?)?;
+
+    Ok(())
 }
 
 pub fn forward_gdp(mut gdp: Gdp<DTls<Ipv4>>, dst: Ipv4Addr) -> Result<Either<Gdp<DTls<Ipv4>>>> {
@@ -82,6 +112,7 @@ pub fn forward_gdp(mut gdp: Gdp<DTls<Ipv4>>, dst: Ipv4Addr) -> Result<Either<Gdp
     let ethernet = ipv4.envelope_mut();
     ethernet.set_src(ethernet.dst());
     ethernet.set_dst(MacAddr::broadcast());
+    // println!("outgoing: {:?}", gdp);
     Ok(Either::Keep(gdp))
 }
 
@@ -130,16 +161,19 @@ pub fn switch_pipeline(
                             Ok(())
                         })
                         .group_by(
-                            move |packet| find_destination(packet, store).is_some(),
+                            move |packet| matches!(find_destination(packet.dst(), store), DestResult::Hit(_)),
                             pipeline! {
                                 true => |group| {
-                                    group.filter_map(move |packet| {
-                                        let ip = find_destination(&packet, store).unwrap();
-                                        if debug {
-                                            println!("{} forwarding packet to ip {}", nic_name, ip);
+                                    group.filter_map(move |mut packet| {
+                                        if let DestResult::Hit(ip) = find_destination(packet.dst(), store) {
+                                            if debug {
+                                                println!("{} forwarding packet to ip {}", nic_name, ip);
+                                            }
+                                            add_forwarding_cert(&mut packet, store, meta, private_key)?;
+                                            forward_gdp(packet, ip)
+                                        } else {
+                                            unreachable!();
                                         }
-                                        let packet = add_forwarding_cert(packet, store, meta, private_key)?;
-                                        forward_gdp(packet, ip)
                                     })
                                 },
                                 false => |group| {
@@ -151,7 +185,11 @@ pub fn switch_pipeline(
                                         if debug {
                                             println!("{} querying RIB for destination {:?}", nic_name, packet.dst());
                                         }
-                                        create_rib_request(Mbuf::new()?, &RibQuery::next_hop_for(packet.dst()), src_mac, src_ip, gdp_name, rib_ip)
+                                        if let DestResult::Miss(proxy) = find_destination(packet.dst(), store) {
+                                            create_rib_request(Mbuf::new()?, &RibQuery::next_hop_for(proxy), src_mac, src_ip, gdp_name, rib_ip)
+                                        } else {
+                                            unreachable!();
+                                        }
                                     })
                                 },
                             }
@@ -180,21 +218,29 @@ pub fn switch_pipeline(
                 .filter(move |packet| packet.dst() != gdp_name) // packets intended for a client can continue
                 .filter_map(move |packet| {
                     // TODO(rahularya) - look up route using RibQuery::next_hop_for if the route is not found
-                    let dest = find_destination(&packet, store).ok_or_else(|| anyhow!("unable to forward RIB reply to client"))?;
-                    forward_gdp(packet, dest)
+                    if let DestResult::Hit(dest) = find_destination(packet.dst(), store) {
+                        forward_gdp(packet, dest)
+                    } else {
+                        bail!("unable to forward RIB reply to client")
+                    }
                 })
         },
         GdpAction::Nack => |group| {
             group.filter_map(move |packet| {
                 let route = store.nack_reply_cache.get(&packet.src());
                 match route {
-                    Some(FwdTableEntry { ip, .. }) => forward_gdp(packet, ip),
+                    Some(FwdTableEntry { val: ip, .. }) => forward_gdp(packet, ip),
                     None => Ok(Either::Drop(packet.reset())),
                 }
             })
         },
         GdpAction::RibGet => |group| {
-            group.filter_map(move |packet| forward_gdp(packet, rib_ip))
+            group
+                .map(move |mut packet| {
+                    intercept_rib_insertion(&mut packet, store, debug)?;
+                    Ok(packet)
+                })
+                .filter_map(move |packet| forward_gdp(packet, rib_ip))
         },
         _ => |group| {group.filter(|_| false)}
     }

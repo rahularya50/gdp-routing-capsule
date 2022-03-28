@@ -16,21 +16,21 @@ pub trait Expirable {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct FwdTableEntry {
-    pub ip: Ipv4Addr,
+pub struct FwdTableEntry<T> {
+    pub val: T,
     pub expiration_time: u64,
 }
 
-impl FwdTableEntry {
-    pub fn new(ip: Ipv4Addr, expiration_time: u64) -> Self {
+impl<T> FwdTableEntry<T> {
+    pub fn new(val: T, expiration_time: u64) -> Self {
         FwdTableEntry {
-            ip,
+            val,
             expiration_time,
         }
     }
 }
 
-impl Expirable for FwdTableEntry {
+impl<T> Expirable for FwdTableEntry<T> {
     fn is_expired(&self) -> bool {
         Duration::from_secs(self.expiration_time)
             < SystemTime::now().duration_since(UNIX_EPOCH).unwrap()
@@ -196,8 +196,9 @@ where
 }
 #[derive(Copy, Clone)]
 pub struct SharedStore {
-    forwarding_table: SharedCache<GdpName, FwdTableEntry>,
-    nack_reply_cache: SharedCache<GdpName, FwdTableEntry>,
+    forwarding_table: SharedCache<GdpName, FwdTableEntry<Ipv4Addr>>,
+    next_hops: SharedCache<GdpName, FwdTableEntry<GdpName>>,
+    nack_reply_cache: SharedCache<GdpName, FwdTableEntry<Ipv4Addr>>,
     gdp_metadata: SharedCache<GdpName, GdpMeta>,
     route_certs: SharedCache<GdpName, Certificate>,
 }
@@ -206,6 +207,7 @@ impl SharedStore {
     pub fn new() -> SharedStore {
         SharedStore {
             forwarding_table: SharedCache::new(),
+            next_hops: SharedCache::new(),
             nack_reply_cache: SharedCache::new(),
             gdp_metadata: SharedCache::new(),
             route_certs: SharedCache::new(),
@@ -215,6 +217,7 @@ impl SharedStore {
     pub fn sync(&self) -> Store {
         Store {
             forwarding_table: self.forwarding_table.sync(),
+            next_hops: self.next_hops.sync(),
             nack_reply_cache: self.nack_reply_cache.sync(),
             gdp_metadata: self.gdp_metadata.sync(),
             route_certs: self.route_certs.sync(),
@@ -229,8 +232,16 @@ impl SharedStore {
 }
 #[derive(Copy, Clone)]
 pub struct Store {
-    pub forwarding_table: SyncCache<GdpName, FwdTableEntry>,
-    pub nack_reply_cache: SyncCache<GdpName, FwdTableEntry>,
+    /// The IP addresses indicating where to forward packets destined for each GdpName
+    /// Includes both cached responses from the RIB (pointing to peer switches),
+    /// and semi-permanent records from our local domain (pointing to clients or child switches)
+    pub forwarding_table: SyncCache<GdpName, FwdTableEntry<Ipv4Addr>>,
+    /// The GdpNames of switches delegated to particular target GdpNames outside our local domain
+    pub next_hops: SyncCache<GdpName, FwdTableEntry<GdpName>>,
+    /// The IP addresses of nodes that previously sent us packets originating from each GdpName
+    pub nack_reply_cache: SyncCache<GdpName, FwdTableEntry<Ipv4Addr>>,
+    /// The metadata associated with GdpNames
     pub gdp_metadata: SyncCache<GdpName, GdpMeta>,
+    /// Route certs we have issued delegating our representation to another GdpName
     pub route_certs: SyncCache<GdpName, Certificate>,
 }
