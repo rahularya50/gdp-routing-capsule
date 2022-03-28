@@ -22,6 +22,7 @@ pub fn start_rib_server(
     env: Env,
     node_addr: Ipv4Addr,
     use_default: bool,
+    debug: bool,
 ) -> Result<()> {
     let routes: &'static Routes = Box::leak(Box::new(load_routes(env)?));
 
@@ -29,10 +30,10 @@ pub fn start_rib_server(
         .add_pipeline_to_port("eth1", move |q| {
             install_gdp_pipeline(
                 q,
-                rib_pipeline("rib", routes, use_default, false),
+                rib_pipeline("rib", routes, use_default, debug),
                 "prod",
                 node_addr,
-                false,
+                debug,
             )
         })?
         .execute()?;
@@ -44,6 +45,7 @@ pub fn start_switch_server(
     env: Env,
     gdp_index: u8,
     node_addr: Ipv4Addr,
+    debug: bool,
 ) -> Result<()> {
     let gdp_name = gdp_name_of_index(gdp_index);
     let meta = metadata_of_index(gdp_index);
@@ -74,11 +76,11 @@ pub fn start_switch_server(
                     store,
                     "switch",
                     routes.rib.ip,
-                    false,
+                    debug,
                 ),
                 "prod",
                 node_addr,
-                false,
+                debug,
             )
         })?
         // .add_periodic_task_to_core(0, print_stats, Duration::from_secs(1))?

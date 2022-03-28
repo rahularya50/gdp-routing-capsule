@@ -278,7 +278,7 @@ pub fn start_sidecar_listener(
                 .await
             })
         })?
-        .add_pipeline_to_core(1, move |q| {
+        .add_pipeline_to_core(0, move |q| {
             Schedule::new("outgoing", async move {
                 barrier2.wait().await;
                 outgoing_sidecar_pipeline(

@@ -109,8 +109,8 @@ fn main() -> Result<()> {
 
     match mode {
         Mode::Dev => start_dev_server(config),
-        Mode::Router => start_rib_server(config, env, ip_addr?, use_default),
-        Mode::Switch => start_switch_server(config, env, gdp_name?, ip_addr?),
+        Mode::Router => start_rib_server(config, env, ip_addr?, use_default, debug),
+        Mode::Switch => start_switch_server(config, env, gdp_name?, ip_addr?, debug),
         Mode::Client => start_client_server(config, ip_addr?, switch_addr?, env),
         Mode::Sidecar => start_sidecar_listener(
             config,
