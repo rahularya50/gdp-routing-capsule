@@ -1,4 +1,4 @@
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::{Arc, RwLock};
 
 use anyhow::{anyhow, Context, Result};
@@ -23,12 +23,16 @@ use crate::hardcoded_routes::{
 use crate::kvs::{SharedStore, Store};
 use crate::packet_logging::{LogArrive, LogFail};
 use crate::packet_ops::{get_payload, set_payload};
-use crate::rib::{create_rib_request, send_rib_query, RIB_PORT, handle_rib_reply};
+use crate::rib::{create_rib_request, handle_rib_reply, send_rib_query, RIB_PORT};
 use crate::ribpayload::RibQuery;
 use crate::runtime::build_runtime;
 use crate::schedule::Schedule;
 use crate::switch::{bounce_gdp, bounce_udp, forward_gdp};
 use crate::{pipeline, Env};
+
+// needed since otherwise we'd be using the broadcast IP
+// which may cause the reply to be dropped
+const INTERNAL_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(172, 18, 0, 254));
 
 fn execute_command(
     src_mac: MacAddr,
@@ -86,17 +90,20 @@ fn incoming_sidecar_pipeline(
                         pipeline! {
                             true => |group| {
                                 // certificates look good, redirect to listener
-                                group.map(|mut packet| {
+                                group.map(move |mut packet| {
                                     let (mac, ip, port) = *state
                                         .listen_addr
                                         .read()
                                         .map_err(|_| anyhow!("failed to unlock listen addr"))?;
 
                                     let udp = packet.envelope_mut().envelope_mut();
+                                    udp.set_src_ip(INTERNAL_IP)?;
                                     udp.set_dst_ip(ip.into())?;
+                                    udp.set_src_port(25000);
                                     udp.set_dst_port(port);
 
                                     let ethernet = udp.envelope_mut().envelope_mut();
+                                    ethernet.set_src(mac);
                                     ethernet.set_dst(mac);
 
                                     Ok(packet)
@@ -126,12 +133,16 @@ fn incoming_sidecar_pipeline(
                 GdpAction::RibReply => |group| {
                     group
                         .for_each(move |packet| handle_rib_reply(packet, store, debug))
-                        .filter(move |packet| false)
+                        .filter(move |_| false)
                 }
             },
         )
         // drop dTLS header before forwarding to library
         .map(|packet| packet.deparse().remove())
+        .map(|mut packet| {
+            packet.reconcile_all();
+            Ok(packet)
+        })
 }
 
 fn outgoing_sidecar_pipeline(
@@ -212,10 +223,7 @@ fn outgoing_sidecar_pipeline(
                         .map(move |mut packet| {
                             let udp = packet.envelope_mut().envelope_mut();
                             bounce_udp(udp);
-                            // TODO(rahularya) - stop hardcoding IPs
-                            // needed since otherwise we'd be using the broadcast IP
-                            // which may cause the reply to be dropped
-                            udp.set_src_ip(Ipv4Addr::new(172, 18, 0, 254).into())?;
+                            udp.set_src_ip(INTERNAL_IP)?;
                             let ethernet = udp.envelope_mut().envelope_mut();
                             ethernet.set_src(loc_mac_addr);
                             let mut udp = packet.deparse().remove()?;

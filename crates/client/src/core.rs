@@ -83,10 +83,11 @@ impl GdpClient {
             {
                 continue;
             }
+            let buf = &buf[..size];
             let (header, payload) = buf.split_at(size_of::<GdpHeader>());
             let header: [u8; size_of::<GdpHeader>()] = header.try_into().unwrap();
             let header: GdpHeader = unsafe { transmute(header) };
-            return Ok((header, Box::new(payload).to_vec().into_boxed_slice()));
+            return Ok((header, payload.to_vec().into_boxed_slice()));
         }
     }
 
