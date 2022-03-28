@@ -116,7 +116,10 @@ fn incoming_sidecar_pipeline(
                                         create_rib_request(Mbuf::new()?, &RibQuery::metas_for(&unknown_names), src_mac, src_ip, gdp_name, switch_ip)
                                     })
                                     .map(bounce_gdp)
+                                    .map(|packet| Ok(packet.deparse()))
+                                    .map(encrypt_gdp)
                                     .emit(q)
+                                    .replace(|_| unreachable!())
                             }
                         })
                 },
