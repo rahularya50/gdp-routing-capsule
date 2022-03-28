@@ -23,7 +23,7 @@ use crate::hardcoded_routes::{
 use crate::kvs::{SharedStore, Store};
 use crate::packet_logging::{LogArrive, LogFail};
 use crate::packet_ops::{get_payload, set_payload};
-use crate::rib::{create_rib_request, send_rib_query};
+use crate::rib::{create_rib_request, send_rib_query, RIB_PORT};
 use crate::ribpayload::RibQuery;
 use crate::runtime::build_runtime;
 use crate::schedule::Schedule;
@@ -169,7 +169,9 @@ fn outgoing_sidecar_pipeline(
                         })
                         .filter_map(move |mut packet| {
                             // pretend we were received by the public NIC, so we can forward with the proper outgoing IP + MAC
-                            let ipv4 = packet.envelope_mut().envelope_mut().envelope_mut();
+                            let udp = packet.envelope_mut().envelope_mut();
+                            udp.set_dst_port(RIB_PORT);
+                            let ipv4 = udp.envelope_mut();
                             ipv4.set_dst(node_ip);
                             ipv4.envelope_mut().set_dst(node_mac);
                             forward_gdp(packet, switch_ip)
@@ -279,7 +281,7 @@ pub fn start_sidecar_listener(
                 .await
             })
         })?
-        .add_pipeline_to_core(0, move |q| {
+        .add_pipeline_to_core(1, move |q| {
             Schedule::new("outgoing", async move {
                 barrier2.wait().await;
                 outgoing_sidecar_pipeline(
